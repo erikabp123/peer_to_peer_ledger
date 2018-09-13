@@ -146,21 +146,14 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 	}
 	if len(message.Peers) > 0 {
 		mutexTracker.Lock()
-		var tempTracker []string
 		for _, newIp := range message.Peers {
-			if len(tracker) == 0 {
-				tempTracker = append(tempTracker, newIp)
-			}
-			for _, storedIp := range tracker {
-				if newIp != storedIp {
-					tempTracker = append(tempTracker, newIp)
-				}
+			if !trackerContainsIp(newIp) {
+				tracker = append(tracker, newIp)
 			}
 		}
-		for _, value := range tempTracker {
-			tracker = append(tracker, value)
+		if !trackerContainsIp(getMyIpAndPort()) {
+			tracker = append(tracker, getMyIpAndPort())
 		}
-		tracker = append(tracker, getMyIpAndPort())
 		mutexTracker.Unlock()
 		reply := new(TcpMessage)
 		reply.Msg = "Ready_" + getMyIpAndPort()
@@ -168,6 +161,15 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		return
 	}
 
+}
+
+func trackerContainsIp(ip string) bool {
+	for _, value := range tracker {
+		if ip == value {
+			return true
+		}
+	}
+	return false
 }
 
 func activePeersContainsIp(ip string) bool {
