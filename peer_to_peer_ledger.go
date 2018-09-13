@@ -24,6 +24,7 @@ var (
 	tracker      []string
 	ledger       *Ledger
 	port         string
+	transactions map[string]bool
 )
 
 type TcpMessage struct {
@@ -59,6 +60,7 @@ func (l *Ledger) Transaction(t *Transaction) {
 }
 
 func main() {
+	transactions = make(map[string]bool)
 	port = randomPort()
 	activePeers = []net.Conn{}
 	tracker = []string{}
@@ -168,7 +170,7 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		return
 	}
 	if message.Msg == "Transaction" {
-		ledger.Transaction(message.Transaction)
+		go forwardTransaction(message)
 	}
 
 }
@@ -265,10 +267,31 @@ func sendToPeers(message string) {
 	tcpMsg := new(TcpMessage)
 	tcpMsg.Msg = "Transaction"
 	tcpMsg.Transaction = transaction
-	ledger.Transaction(transaction)
+	mutexLedger.Lock()
+	if !transactions[transaction.ID] {
+		transactions[transaction.ID] = true
+		ledger.Transaction(transaction)
+	}
+	mutexLedger.Unlock()
+	mutexPeers.Lock()
 	for _, peer := range activePeers {
 		marshal(*tcpMsg, peer)
 	}
+	mutexPeers.Unlock()
+}
+
+func forwardTransaction(tcpMsg TcpMessage) {
+	mutexLedger.Lock()
+	if !transactions[tcpMsg.Transaction.ID] {
+		transactions[tcpMsg.Transaction.ID] = true
+		ledger.Transaction(tcpMsg.Transaction)
+		mutexPeers.Lock()
+		for _, peer := range activePeers {
+			marshal(tcpMsg, peer)
+		}
+		mutexPeers.Unlock()
+	}
+	mutexLedger.Unlock()
 }
 
 func randomPort() string {
