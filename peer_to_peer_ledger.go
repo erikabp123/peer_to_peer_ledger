@@ -71,7 +71,6 @@ func main() {
 	connectToExistingPeer(ip)
 	go userInput()
 	go accept()
-	connectToTrackerList()
 	for !stop {
 		time.Sleep(5000 * time.Millisecond) // keep alive
 	}
@@ -136,9 +135,10 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		mutexTracker.Unlock()
 		return
 	}
-	if message.Msg == "Ready" {
+	if strings.Contains(message.Msg, "Ready") {
 		mutexTracker.Lock()
-		tracker = append(tracker, conn.RemoteAddr().String())
+		str := strings.Split(message.Msg, "_")
+		tracker = append(tracker, str[1])
 		mutexTracker.Unlock()
 		return
 	}
@@ -154,7 +154,7 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		tracker = append(tracker, getMyIpAndPort())
 		mutexTracker.Unlock()
 		reply := new(TcpMessage)
-		reply.Msg = "Ready"
+		reply.Msg = "Ready_" + getMyIpAndPort()
 		marshal(*reply, conn)
 		return
 	}
@@ -207,6 +207,7 @@ func accept() {
 	port = randomPort()
 	fmt.Println("Now listening on " + getMyIpAndPort())
 	ln, err := net.Listen("tcp", ":"+port)
+	connectToTrackerList()
 	if err != nil {
 		log.Fatal(err)
 		fmt.Println("Error listening to port " + port)
