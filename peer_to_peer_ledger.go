@@ -60,6 +60,7 @@ func (l *Ledger) Transaction(t *Transaction) {
 }
 
 func main() {
+	port = randomPort()
 	activePeers = []net.Conn{}
 	tracker = []string{}
 	ledger = MakeLedger()
@@ -145,6 +146,9 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 	if len(message.Peers) > 0 {
 		mutexTracker.Lock()
 		for _, newIp := range message.Peers {
+			if len(tracker) == 0 && !activePeersContainsIp(newIp) {
+				tracker = append(tracker, newIp)
+			}
 			for _, storedIp := range tracker {
 				if newIp != storedIp {
 					tracker = append(tracker, newIp)
@@ -161,37 +165,41 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 
 }
 
+func activePeersContainsIp(ip string) bool {
+	mutexPeers.Lock()
+	defer mutexPeers.Unlock()
+	for _, value := range activePeers {
+		if ip == value.RemoteAddr().String() {
+			return true
+		}
+	}
+	return false
+}
+
 func connectToTrackerList() {
 	mutexTracker.Lock()
 	var amountTilWrap int
 	var ourPosition int
 	for key, value := range tracker {
 		if value == getMyIpAndPort() {
-			fmt.Println("Found myself in tracker!")
 			ourPosition = key
 			break
 		}
 	}
 	amountTilWrap = findWrapAround(len(tracker), ourPosition)
 	for i := ourPosition + 1; i < len(tracker); i++ {
-		fmt.Println("Connectiong to tracker with index: " + strconv.Itoa(i))
 		go connectToExistingPeer(tracker[i])
 	}
 	lessThan11 := len(tracker) < 11
 	if lessThan11 {
-		fmt.Println("There are less than 11 total peers in the tracker! (" + strconv.Itoa(len(tracker)) + ")")
 		for i := 0; i < (len(tracker)-1)-amountTilWrap; i++ {
-			fmt.Println("Connectiong to tracker with index: " + strconv.Itoa(i))
 			go connectToExistingPeer(tracker[i])
 		}
 	} else {
-		fmt.Println("There's more than 11 total peers in the tracker! (" + strconv.Itoa(len(tracker)) + ")")
 		for i := 0; i < 10-amountTilWrap; i++ {
-			fmt.Println("Connectiong to tracker with index: " + strconv.Itoa(i))
 			go connectToExistingPeer(tracker[i])
 		}
 	}
-
 	mutexTracker.Unlock()
 }
 
@@ -204,7 +212,6 @@ func getMyIpAndPort() string {
 }
 
 func accept() {
-	port = randomPort()
 	fmt.Println("Now listening on " + getMyIpAndPort())
 	ln, err := net.Listen("tcp", ":"+port)
 	connectToTrackerList()
