@@ -25,6 +25,7 @@ var (
 	messages      map[string]bool
 	ledger        *Ledger
 	port          string
+	connectToList = false
 )
 
 type TcpMessage struct {
@@ -70,16 +71,10 @@ func main() {
 	connectToExistingPeer(ip)
 	go userInput()
 	go accept()
+	connectToTrackerList()
 	for !stop {
 		time.Sleep(5000 * time.Millisecond) // keep alive
 	}
-}
-
-func getTracker() []string {
-	mutexTracker.Lock()
-	defer mutexTracker.Unlock()
-	return tracker
-
 }
 
 func marshal(msg TcpMessage, conn net.Conn) {
@@ -96,7 +91,7 @@ func connectToExistingPeer(ip string) {
 	conn, err := net.Dial("tcp", ip)
 	if err != nil {
 		fmt.Println("Error connecting")
-		tracker = append(tracker, GetOutboundIP().String()+":"+port)
+		tracker = append(tracker, getMyIpAndPort())
 	} else {
 		fmt.Println("Connected to: " + ip)
 		connect(conn)
@@ -134,9 +129,11 @@ func listen(conn net.Conn) {
 
 func checkMessage(message TcpMessage, conn net.Conn) {
 	if message.Msg == "Tracker" {
+		mutexTracker.Lock()
 		reply := new(TcpMessage)
-		reply.Peers = getTracker()
+		reply.Peers = tracker
 		marshal(*reply, conn)
+		mutexTracker.Unlock()
 		return
 	}
 	if message.Msg == "Ready" {
@@ -154,18 +151,61 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 				}
 			}
 		}
-		tracker = append(tracker, GetOutboundIP().String()+":"+port)
+		tracker = append(tracker, getMyIpAndPort())
 		mutexTracker.Unlock()
 		reply := new(TcpMessage)
 		reply.Msg = "Ready"
 		marshal(*reply, conn)
+		return
 	}
 
 }
 
+func connectToTrackerList() {
+	mutexTracker.Lock()
+	var amountTilWrap int
+	var ourPosition int
+	for key, value := range tracker {
+		if value == getMyIpAndPort() {
+			fmt.Println("Found myself in tracker!")
+			ourPosition = key
+			break
+		}
+	}
+	amountTilWrap = findWrapAround(len(tracker), ourPosition)
+	for i := ourPosition + 1; i < len(tracker); i++ {
+		fmt.Println("Connectiong to tracker with index: " + strconv.Itoa(i))
+		go connectToExistingPeer(tracker[i])
+	}
+	lessThan11 := len(tracker) < 11
+	if lessThan11 {
+		fmt.Println("There are less than 11 total peers in the tracker! (" + strconv.Itoa(len(tracker)) + ")")
+		for i := 0; i < (len(tracker)-1)-amountTilWrap; i++ {
+			fmt.Println("Connectiong to tracker with index: " + strconv.Itoa(i))
+			go connectToExistingPeer(tracker[i])
+		}
+	} else {
+		fmt.Println("There's more than 11 total peers in the tracker! (" + strconv.Itoa(len(tracker)) + ")")
+		for i := 0; i < 10-amountTilWrap; i++ {
+			fmt.Println("Connectiong to tracker with index: " + strconv.Itoa(i))
+			go connectToExistingPeer(tracker[i])
+		}
+	}
+
+	mutexTracker.Unlock()
+}
+
+func findWrapAround(length int, currentPos int) int {
+	return (length - 1) - currentPos
+}
+
+func getMyIpAndPort() string {
+	return GetOutboundIP().String() + ":" + port
+}
+
 func accept() {
-	port := randomPort()
-	fmt.Println("Now listening on " + GetOutboundIP().String() + ":" + port)
+	port = randomPort()
+	fmt.Println("Now listening on " + getMyIpAndPort())
 	ln, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		log.Fatal(err)
