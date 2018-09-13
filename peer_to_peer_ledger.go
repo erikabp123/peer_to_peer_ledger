@@ -74,7 +74,12 @@ func main() {
 	go accept()
 	for !stop {
 		time.Sleep(5000 * time.Millisecond) // keep alive
-		fmt.Println(activePeers, tracker)
+		fmt.Println(tracker)
+		var a string
+		for _, value := range activePeers {
+			a += value.RemoteAddr().String() + ", "
+		}
+		fmt.Println(a)
 	}
 }
 
