@@ -19,14 +19,17 @@ var (
 	stop          = false
 	mutexPeers    sync.Mutex
 	mutexMessages sync.Mutex
-	peers         []net.Conn
+	mutexTracker  sync.Mutex
+	activePeers   []net.Conn
+	tracker       []string
 	messages      map[string]bool
 	ledger        *Ledger
+	port          string
 )
 
 type TcpMessage struct {
 	Msg         string
-	Ips         []string
+	Peers       []string
 	Transaction Transaction
 }
 
@@ -56,10 +59,15 @@ func (l *Ledger) Transaction(t *Transaction) {
 }
 
 func main() {
-	peers = []net.Conn{}
+	activePeers = []net.Conn{}
+	tracker = []string{}
 	ledger = MakeLedger()
 	messages = make(map[string]bool)
-	connectToExistingPeer()
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("Connect to existing peer (E.g. 0.0.0.0:25556): ")
+	ip, _ := reader.ReadString('\n')
+	ip = strings.TrimSuffix(ip, "\n")
+	connectToExistingPeer(ip)
 	go userInput()
 	go accept()
 	for !stop {
@@ -67,12 +75,11 @@ func main() {
 	}
 }
 
-func getPeerList() []string {
-	var ips []string
-	for _, peer := range peers {
-		ips = append(ips, peer.RemoteAddr().String())
-	}
-	return ips
+func getTracker() []string {
+	mutexTracker.Lock()
+	defer mutexTracker.Unlock()
+	return tracker
+
 }
 
 func marshal(msg TcpMessage, conn net.Conn) {
@@ -81,32 +88,27 @@ func marshal(msg TcpMessage, conn net.Conn) {
 	if err := e.Encode(msg); err != nil {
 		panic(err)
 	}
-	fmt.Println("Encoded Struct ", b)
 	conn.Write(b.Bytes())
 }
 
-func connectToExistingPeer() {
-	reader := bufio.NewReader(os.Stdin)
-
-	fmt.Printf("Connect to existing peer (E.g. 0.0.0.0:25556): ")
-	ip, _ := reader.ReadString('\n')
-	ip = strings.TrimSuffix(ip, "\n")
+func connectToExistingPeer(ip string) {
 	fmt.Println("Connecting...")
 	conn, err := net.Dial("tcp", ip)
 	if err != nil {
 		fmt.Println("Error connecting")
+		tracker = append(tracker, GetOutboundIP().String()+":"+port)
 	} else {
 		fmt.Println("Connected to: " + ip)
 		connect(conn)
 		tcpMessage := new(TcpMessage)
-		tcpMessage.Msg = "getPeerList()"
+		tcpMessage.Msg = "Tracker"
 		marshal(*tcpMessage, conn)
 	}
 }
 
 func connect(conn net.Conn) {
 	mutexPeers.Lock()
-	peers = append(peers, conn)
+	activePeers = append(activePeers, conn)
 	mutexPeers.Unlock()
 	go listen(conn)
 }
@@ -126,7 +128,39 @@ func listen(conn net.Conn) {
 		p := &TcpMessage{}
 		dec.Decode(p)
 		fmt.Println(p.Msg)
+		checkMessage(*p, conn)
 	}
+}
+
+func checkMessage(message TcpMessage, conn net.Conn) {
+	if message.Msg == "Tracker" {
+		reply := new(TcpMessage)
+		reply.Peers = getTracker()
+		marshal(*reply, conn)
+		return
+	}
+	if message.Msg == "Ready" {
+		mutexTracker.Lock()
+		tracker = append(tracker, conn.RemoteAddr().String())
+		mutexTracker.Unlock()
+		return
+	}
+	if len(message.Peers) > 0 {
+		mutexTracker.Lock()
+		for _, newIp := range message.Peers {
+			for _, storedIp := range tracker {
+				if newIp != storedIp {
+					tracker = append(tracker, newIp)
+				}
+			}
+		}
+		tracker = append(tracker, GetOutboundIP().String()+":"+port)
+		mutexTracker.Unlock()
+		reply := new(TcpMessage)
+		reply.Msg = "Ready"
+		marshal(*reply, conn)
+	}
+
 }
 
 func accept() {
@@ -152,7 +186,7 @@ func sendToPeers(message string) bool {
 	mutexMessages.Lock()
 	if messages[message] == false {
 		messages[message] = true
-		for _, peer := range peers {
+		for _, peer := range activePeers {
 			peer.Write([]byte(message + "\n"))
 		}
 		mutexMessages.Unlock()
