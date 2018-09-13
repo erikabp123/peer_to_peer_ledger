@@ -74,6 +74,7 @@ func main() {
 	go accept()
 	for !stop {
 		time.Sleep(5000 * time.Millisecond) // keep alive
+		fmt.Println(activePeers, tracker)
 	}
 }
 
@@ -145,17 +146,20 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 	}
 	if len(message.Peers) > 0 {
 		mutexTracker.Lock()
+		var tempTracker []string
 		for _, newIp := range message.Peers {
 			if len(tracker) == 0 {
-				tracker = append(tracker, newIp)
+				tempTracker = append(tempTracker, newIp)
 			}
 			for _, storedIp := range tracker {
 				if newIp != storedIp {
-					tracker = append(tracker, newIp)
+					tempTracker = append(tempTracker, newIp)
 				}
 			}
 		}
-		fmt.Println(tracker)
+		for _, value := range tempTracker {
+			tracker = append(tracker, value)
+		}
 		tracker = append(tracker, getMyIpAndPort())
 		mutexTracker.Unlock()
 		reply := new(TcpMessage)
