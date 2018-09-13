@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/gob"
 	"fmt"
-	"io"
 	"log"
 	"math/rand"
 	"net"
@@ -22,19 +21,20 @@ var (
 	mutexMessages sync.Mutex
 	peers         []net.Conn
 	messages      map[string]bool
-	ledger		  *Ledger
+	ledger        *Ledger
 )
 
-type tcpMessage struct {
-	msg string
-	ips []string
-	transaction Transaction
+type TcpMessage struct {
+	Msg         string
+	Ips         []string
+	Transaction Transaction
 }
 
 type Ledger struct {
 	Accounts map[string]int
-	lock sync.Mutex
+	lock     sync.Mutex
 }
+
 func MakeLedger() *Ledger {
 	ledger := new(Ledger)
 	ledger.Accounts = make(map[string]int)
@@ -42,17 +42,18 @@ func MakeLedger() *Ledger {
 }
 
 type Transaction struct {
-	ID string
-	From string
-	To string
+	ID     string
+	From   string
+	To     string
 	Amount int
 }
+
 func (l *Ledger) Transaction(t *Transaction) {
-	l.lock.Lock() ; defer l.lock.Unlock()
+	l.lock.Lock()
+	defer l.lock.Unlock()
 	l.Accounts[t.From] -= t.Amount
 	l.Accounts[t.To] += t.Amount
 }
-
 
 func main() {
 	peers = []net.Conn{}
@@ -68,25 +69,23 @@ func main() {
 
 func getPeerList() []string {
 	var ips []string
-	for _, peer := range peers{
+	for _, peer := range peers {
 		ips = append(ips, peer.RemoteAddr().String())
 	}
 	return ips
 }
 
-func marshal(msg tcpMessage) []byte {
-	buffer := &bytes.Buffer{}
-	gob.NewEncoder(buffer).Encode(msg)
-	return buffer.Bytes()
-}
-
-func checkMessageForCommand(msg string, conn net.Conn){
-	if msg == "getPeerList()"{
-		conn.Write(marshal(getPeerList()))
+func marshal(msg TcpMessage, conn net.Conn) {
+	var b bytes.Buffer
+	e := gob.NewEncoder(&b)
+	if err := e.Encode(msg); err != nil {
+		panic(err)
 	}
+	fmt.Println("Encoded Struct ", b)
+	conn.Write(b.Bytes())
 }
 
-func connectToExistingPeer(){
+func connectToExistingPeer() {
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Printf("Connect to existing peer (E.g. 0.0.0.0:25556): ")
@@ -99,6 +98,9 @@ func connectToExistingPeer(){
 	} else {
 		fmt.Println("Connected to: " + ip)
 		connect(conn)
+		tcpMessage := new(TcpMessage)
+		tcpMessage.Msg = "getPeerList()"
+		marshal(*tcpMessage, conn)
 	}
 }
 
@@ -114,22 +116,16 @@ func userInput() {
 	for !stop {
 		newMessage, _ := reader.ReadString('\n')
 		newMessage = strings.TrimSuffix(newMessage, "\n")
-		sendToPeers(newMessage)
+		//sendToPeers(newMessage)
 	}
 }
 
 func listen(conn net.Conn) {
 	for !stop {
 		dec := gob.NewDecoder(conn)
-		var msg []byte
-		for {
-			err := dec.Decode(msg)
-			if err != nil {
-				return
-			}
-			fmt.Println(msg)
-		}
-		checkMessageForCommand(msg, conn)
+		p := &TcpMessage{}
+		dec.Decode(p)
+		fmt.Println(p.Msg)
 	}
 }
 
