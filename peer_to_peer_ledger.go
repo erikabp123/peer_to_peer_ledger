@@ -52,7 +52,7 @@ type Transaction struct {
 
 func (l *Ledger) Transaction(t *Transaction) {
 	l.lock.Lock()
-	fmt.Println("performing transaction!")
+	fmt.Println("performing transaction #" + t.ID + "... " + t.From + " => " + t.To + "... Amount: " + strconv.Itoa(t.Amount))
 	defer l.lock.Unlock()
 	l.Accounts[t.From] -= t.Amount
 	l.Accounts[t.To] += t.Amount
@@ -131,7 +131,6 @@ func listen(conn net.Conn) {
 		dec := gob.NewDecoder(conn)
 		p := &TcpMessage{}
 		dec.Decode(p)
-		fmt.Println(p.Msg)
 		checkMessage(*p, conn)
 	}
 }
