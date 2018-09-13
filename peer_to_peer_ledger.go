@@ -146,7 +146,7 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 	if len(message.Peers) > 0 {
 		mutexTracker.Lock()
 		for _, newIp := range message.Peers {
-			if len(tracker) == 0 && !activePeersContainsIp(newIp) {
+			if len(tracker) == 0 {
 				tracker = append(tracker, newIp)
 			}
 			for _, storedIp := range tracker {
@@ -155,6 +155,7 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 				}
 			}
 		}
+		fmt.Println(tracker)
 		tracker = append(tracker, getMyIpAndPort())
 		mutexTracker.Unlock()
 		reply := new(TcpMessage)
@@ -188,16 +189,22 @@ func connectToTrackerList() {
 	}
 	amountTilWrap = findWrapAround(len(tracker), ourPosition)
 	for i := ourPosition + 1; i < len(tracker); i++ {
-		go connectToExistingPeer(tracker[i])
+		if !activePeersContainsIp(tracker[i]) {
+			go connectToExistingPeer(tracker[i])
+		}
 	}
 	lessThan11 := len(tracker) < 11
 	if lessThan11 {
 		for i := 0; i < (len(tracker)-1)-amountTilWrap; i++ {
-			go connectToExistingPeer(tracker[i])
+			if !activePeersContainsIp(tracker[i]) {
+				go connectToExistingPeer(tracker[i])
+			}
 		}
 	} else {
 		for i := 0; i < 10-amountTilWrap; i++ {
-			go connectToExistingPeer(tracker[i])
+			if !activePeersContainsIp(tracker[i]) {
+				go connectToExistingPeer(tracker[i])
+			}
 		}
 	}
 	mutexTracker.Unlock()
