@@ -16,22 +16,20 @@ import (
 )
 
 var (
-	stop          = false
-	mutexPeers    sync.Mutex
-	mutexMessages sync.Mutex
-	mutexTracker  sync.Mutex
-	activePeers   []net.Conn
-	tracker       []string
-	messages      map[string]bool
-	ledger        *Ledger
-	port          string
-	connectToList = false
+	stop         = false
+	mutexPeers   sync.Mutex
+	mutexTracker sync.Mutex
+	activePeers  []net.Conn
+	mutexLedger  sync.Mutex
+	tracker      []string
+	ledger       *Ledger
+	port         string
 )
 
 type TcpMessage struct {
 	Msg         string
 	Peers       []string
-	Transaction Transaction
+	Transaction *Transaction
 }
 
 type Ledger struct {
@@ -54,6 +52,7 @@ type Transaction struct {
 
 func (l *Ledger) Transaction(t *Transaction) {
 	l.lock.Lock()
+	fmt.Println("performing transaction!")
 	defer l.lock.Unlock()
 	l.Accounts[t.From] -= t.Amount
 	l.Accounts[t.To] += t.Amount
@@ -64,7 +63,6 @@ func main() {
 	activePeers = []net.Conn{}
 	tracker = []string{}
 	ledger = MakeLedger()
-	messages = make(map[string]bool)
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Printf("Connect to existing peer (E.g. 0.0.0.0:25556): ")
 	ip, _ := reader.ReadString('\n')
@@ -74,12 +72,12 @@ func main() {
 	go accept()
 	for !stop {
 		time.Sleep(5000 * time.Millisecond) // keep alive
-		fmt.Println(tracker)
-		var a string
-		for _, value := range activePeers {
-			a += value.RemoteAddr().String() + ", "
-		}
-		fmt.Println(a)
+		//fmt.Println(tracker)
+		//var a string
+		//for _, value := range activePeers {
+		//	a += value.RemoteAddr().String() + ", "
+		//}
+		//fmt.Println(a)
 	}
 }
 
@@ -119,7 +117,12 @@ func userInput() {
 	for !stop {
 		newMessage, _ := reader.ReadString('\n')
 		newMessage = strings.TrimSuffix(newMessage, "\n")
-		//sendToPeers(newMessage)
+		if strings.HasPrefix(newMessage, "t:") {
+			sendToPeers(newMessage)
+		}
+		if newMessage == "getLedger" {
+			fmt.Println(ledger.Accounts)
+		}
 	}
 }
 
@@ -164,6 +167,9 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		reply.Msg = "Ready_" + getMyIpAndPort()
 		marshal(*reply, conn)
 		return
+	}
+	if message.Msg == "Transaction" {
+		ledger.Transaction(message.Transaction)
 	}
 
 }
@@ -248,18 +254,22 @@ func accept() {
 	}
 }
 
-func sendToPeers(message string) bool {
-	mutexMessages.Lock()
-	if messages[message] == false {
-		messages[message] = true
-		for _, peer := range activePeers {
-			peer.Write([]byte(message + "\n"))
-		}
-		mutexMessages.Unlock()
-		return true
+func sendToPeers(message string) {
+	str := strings.Split(message, ":")
+	str2 := strings.Split(str[1], ",")
+	transaction := new(Transaction)
+	rand.Seed(time.Now().UTC().UnixNano())
+	transaction.ID = strconv.Itoa(rand.Int())
+	transaction.From = str2[0]
+	transaction.To = str2[1]
+	transaction.Amount, _ = strconv.Atoi(str2[2])
+	tcpMsg := new(TcpMessage)
+	tcpMsg.Msg = "Transaction"
+	tcpMsg.Transaction = transaction
+	ledger.Transaction(transaction)
+	for _, peer := range activePeers {
+		marshal(*tcpMsg, peer)
 	}
-	mutexMessages.Unlock()
-	return false
 }
 
 func randomPort() string {
