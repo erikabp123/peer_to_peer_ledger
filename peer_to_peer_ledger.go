@@ -27,38 +27,6 @@ var (
 	transactions map[string]bool
 )
 
-type TcpMessage struct {
-	Msg         string
-	Peers       []string
-	Transaction *Transaction
-}
-
-type Ledger struct {
-	Accounts map[string]int
-	lock     sync.Mutex
-}
-
-func MakeLedger() *Ledger {
-	ledger := new(Ledger)
-	ledger.Accounts = make(map[string]int)
-	return ledger
-}
-
-type Transaction struct {
-	ID     string
-	From   string
-	To     string
-	Amount int
-}
-
-func (l *Ledger) Transaction(t *Transaction) {
-	l.lock.Lock()
-	fmt.Println("performing transaction #" + t.ID + "... " + t.From + " => " + t.To + "... Amount: " + strconv.Itoa(t.Amount))
-	defer l.lock.Unlock()
-	l.Accounts[t.From] -= t.Amount
-	l.Accounts[t.To] += t.Amount
-}
-
 func main() {
 	transactions = make(map[string]bool)
 	port = randomPort()
@@ -74,13 +42,47 @@ func main() {
 	go accept()
 	for !stop {
 		time.Sleep(5000 * time.Millisecond) // keep alive
-		//fmt.Println(tracker)
-		//var a string
-		//for _, value := range activePeers {
-		//	a += value.RemoteAddr().String() + ", "
-		//}
-		//fmt.Println(a)
 	}
+}
+
+/* Exercise 6.13 */
+
+type SignedTransaction struct {
+	ID        string
+	From      string
+	To        string
+	Amount    int
+	Signature string
+}
+
+func (l *Ledger) SignedTransaction(t *SignedTransaction) {
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	fmt.Println("performing transaction #" + t.ID + "... " + t.From + " => " + t.To + "... Amount: " + strconv.Itoa(t.Amount))
+	validSignature := true
+	if validSignature {
+		l.Accounts[t.From] -= t.Amount
+		l.Accounts[t.To] += t.Amount
+	}
+}
+
+/* End of exercise 6.13 */
+
+type TcpMessage struct {
+	Msg               string
+	Peers             []string
+	SignedTransaction *SignedTransaction
+}
+
+type Ledger struct {
+	Accounts map[string]int
+	lock     sync.Mutex
+}
+
+func MakeLedger() *Ledger {
+	ledger := new(Ledger)
+	ledger.Accounts = make(map[string]int)
+	return ledger
 }
 
 func marshal(msg TcpMessage, conn net.Conn) {
@@ -258,19 +260,20 @@ func accept() {
 func sendToPeers(message string) {
 	str := strings.Split(message, ":")
 	str2 := strings.Split(str[1], ",")
-	transaction := new(Transaction)
+	transaction := new(SignedTransaction)
 	rand.Seed(time.Now().UTC().UnixNano())
 	transaction.ID = strconv.Itoa(rand.Int())
 	transaction.From = str2[0]
 	transaction.To = str2[1]
 	transaction.Amount, _ = strconv.Atoi(str2[2])
+	transaction.Signature = ""
 	tcpMsg := new(TcpMessage)
 	tcpMsg.Msg = "Transaction"
-	tcpMsg.Transaction = transaction
+	tcpMsg.SignedTransaction = transaction
 	mutexLedger.Lock()
 	if !transactions[transaction.ID] {
 		transactions[transaction.ID] = true
-		ledger.Transaction(transaction)
+		ledger.SignedTransaction(transaction)
 	}
 	mutexLedger.Unlock()
 	mutexPeers.Lock()
@@ -282,9 +285,9 @@ func sendToPeers(message string) {
 
 func forwardTransaction(tcpMsg TcpMessage) {
 	mutexLedger.Lock()
-	if !transactions[tcpMsg.Transaction.ID] {
-		transactions[tcpMsg.Transaction.ID] = true
-		ledger.Transaction(tcpMsg.Transaction)
+	if !transactions[tcpMsg.SignedTransaction.ID] {
+		transactions[tcpMsg.SignedTransaction.ID] = true
+		ledger.SignedTransaction(tcpMsg.SignedTransaction)
 		mutexPeers.Lock()
 		for _, peer := range activePeers {
 			marshal(tcpMsg, peer)
