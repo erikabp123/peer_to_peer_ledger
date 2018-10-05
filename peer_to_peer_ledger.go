@@ -39,7 +39,7 @@ func NewOrderedMap() *OrderedMap {
 	om := new(OrderedMap)
 	om.Keys = []string{}
 	om.M = map[string]*account.PublicKey{}
-	return new(OrderedMap)
+	return om
 }
 
 func (o *OrderedMap) Set(k string, v *account.PublicKey) {

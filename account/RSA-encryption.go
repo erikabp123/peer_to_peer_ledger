@@ -58,13 +58,13 @@ func convertByteSliceToSecretKey(slice []byte) *SecretKey {
 }
 
 type PublicKey struct {
-	e *big.Int
-	n *big.Int
+	E *big.Int
+	N *big.Int
 }
 
 type SecretKey struct {
-	n *big.Int
-	d *big.Int
+	N *big.Int
+	D *big.Int
 }
 
 func KeyGen(k int) (*PublicKey, *SecretKey) {
@@ -103,11 +103,11 @@ func KeyGen(k int) (*PublicKey, *SecretKey) {
 	l = l.Mul(p.Sub(p, one), q.Sub(q, one))
 	d := e.ModInverse(e, l)
 	pk := new(PublicKey)
-	pk.n = n
-	pk.e = big.NewInt(3)
+	pk.N = n
+	pk.E = big.NewInt(3)
 	sk := new(SecretKey)
-	sk.n = n
-	sk.d = d
+	sk.N = n
+	sk.D = d
 	return pk, sk
 }
 
@@ -133,13 +133,13 @@ func Hash(msg *big.Int) *big.Int {
 
 func Encrypt(msg *big.Int, key *PublicKey) *big.Int {
 	val := msg
-	c := val.Exp(val, key.e, key.n)
+	c := val.Exp(val, key.E, key.N)
 	return c
 }
 
 func Decrypt(cipher *big.Int, key *SecretKey) *big.Int {
 	m := new(big.Int)
-	m.Exp(cipher, key.d, key.n)
+	m.Exp(cipher, key.D, key.N)
 	return m
 }
 
