@@ -104,6 +104,7 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 		return
 	}
 	validSignature := account.Verify(n, convertTransactionToBigInt(t.T), convertJSONStringToPublicKey(t.T.From))
+	fmt.Println("Validating signature...:", validSignature)
 	if !validSignature {
 		return
 	}
