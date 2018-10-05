@@ -111,6 +111,7 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	transactions[t.T.ID] = true
 	l.Accounts[t.T.From] -= t.T.Amount
 	l.Accounts[t.T.To] += t.T.Amount
+	fmt.Println(l.Accounts)
 	tcpMsg := new(TcpMessage)
 	tcpMsg.Msg = "Transaction"
 	tcpMsg.SignedTransaction = t
