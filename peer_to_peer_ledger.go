@@ -31,20 +31,20 @@ var (
 )
 
 type OrderedMap struct {
-	m    map[string]*account.PublicKey
-	keys []string
+	M    map[string]*account.PublicKey
+	Keys []string
 }
 
 func NewOrderedMap() *OrderedMap {
 	om := new(OrderedMap)
-	om.keys = []string{}
-	om.m = map[string]*account.PublicKey{}
+	om.Keys = []string{}
+	om.M = map[string]*account.PublicKey{}
 	return new(OrderedMap)
 }
 
 func (o *OrderedMap) Set(k string, v *account.PublicKey) {
-	o.m[k] = v
-	o.keys = append(o.keys, k)
+	o.M[k] = v
+	o.Keys = append(o.Keys, k)
 }
 
 func main() {
@@ -171,16 +171,16 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 	}
 	if strings.Contains(message.Msg, "Ready") {
 		mutexTracker.Lock()
-		ip := message.Peers.keys[0]
-		tracker.Set(ip, message.Peers.m[ip])
+		ip := message.Peers.Keys[0]
+		tracker.Set(ip, message.Peers.M[ip])
 		mutexTracker.Unlock()
 		return
 	}
-	if len(message.Peers.keys) > 0 {
+	if len(message.Peers.Keys) > 0 {
 		mutexTracker.Lock()
-		for _, ip := range message.Peers.keys {
+		for _, ip := range message.Peers.Keys {
 			if !trackerContainsIp(ip) {
-				tracker.Set(ip, message.Peers.m[ip])
+				tracker.Set(ip, message.Peers.M[ip])
 			}
 		}
 		if !trackerContainsIp(getMyIpAndPort()) {
@@ -202,7 +202,7 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 }
 
 func trackerContainsIp(ip string) bool {
-	_, isInList := tracker.m[ip]
+	_, isInList := tracker.M[ip]
 	if isInList {
 		return true
 	}
@@ -224,30 +224,30 @@ func connectToTrackerList() {
 	mutexTracker.Lock()
 	var amountTilWrap int
 	var ourPosition int
-	for key, value := range tracker.keys {
+	for key, value := range tracker.Keys {
 		if value == getMyIpAndPort() {
 			ourPosition = key
 			break
 		}
 	}
-	amountTilWrap = findWrapAround(len(tracker.keys), ourPosition)
-	for i := ourPosition + 1; i < len(tracker.keys); i++ {
-		ip := tracker.keys[i]
+	amountTilWrap = findWrapAround(len(tracker.Keys), ourPosition)
+	for i := ourPosition + 1; i < len(tracker.Keys); i++ {
+		ip := tracker.Keys[i]
 		if !activePeersContainsIp(ip) {
 			go connectToExistingPeer(ip)
 		}
 	}
-	lessThan11 := len(tracker.keys) < 11
+	lessThan11 := len(tracker.Keys) < 11
 	if lessThan11 {
-		for i := 0; i < (len(tracker.keys)-1)-amountTilWrap; i++ {
-			ip := tracker.keys[i]
+		for i := 0; i < (len(tracker.Keys)-1)-amountTilWrap; i++ {
+			ip := tracker.Keys[i]
 			if !activePeersContainsIp(ip) {
 				go connectToExistingPeer(ip)
 			}
 		}
 	} else {
 		for i := 0; i < 10-amountTilWrap; i++ {
-			ip := tracker.keys[i]
+			ip := tracker.Keys[i]
 			if !activePeersContainsIp(ip) {
 				go connectToExistingPeer(ip)
 			}
