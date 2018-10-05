@@ -336,7 +336,7 @@ func convertTransactionToBigInt(transaction *Transaction) *big.Int {
 		panic(err)
 	}
 	transactionInt := new(big.Int)
-	big.Int.SetBytes(transactionInt, b.Bytes())
+	transactionInt.SetBytes(b.Bytes())
 	return transactionInt
 }
 
