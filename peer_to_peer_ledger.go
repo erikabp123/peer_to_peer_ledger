@@ -1,4 +1,4 @@
-package Account
+package main
 
 import (
 	"bufio"
@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"peer_to_peer_ledger/account"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,29 +26,29 @@ var (
 	ledger       *Ledger
 	port         string
 	transactions map[string]bool
-	myPublicKey  *PublicKey
-	mySecretKey  *SecretKey
+	myPublicKey  *account.PublicKey
+	mySecretKey  *account.SecretKey
 )
 
 type OrderedMap struct {
-	m    map[string]*PublicKey
+	m    map[string]*account.PublicKey
 	keys []string
 }
 
 func NewOrderedMap() *OrderedMap {
 	om := new(OrderedMap)
 	om.keys = []string{}
-	om.m = map[string]*PublicKey{}
+	om.m = map[string]*account.PublicKey{}
 	return new(OrderedMap)
 }
 
-func (o *OrderedMap) Set(k string, v *PublicKey) {
+func (o *OrderedMap) Set(k string, v *account.PublicKey) {
 	o.m[k] = v
 	o.keys = append(o.keys, k)
 }
 
 func main() {
-	myPublicKey, mySecretKey = KeyGen(256)
+	myPublicKey, mySecretKey = account.KeyGen(256)
 	transactions = make(map[string]bool)
 	port = randomPort()
 	activePeers = []net.Conn{}
@@ -159,7 +160,7 @@ func listen(conn net.Conn) {
 	}
 }
 
-func getFirstKeyOfMap(m map[string]*PublicKey) string {
+func getFirstKeyOfMap(m map[string]*account.PublicKey) string {
 	for k := range m {
 		return k
 	}
