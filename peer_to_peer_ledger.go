@@ -191,7 +191,6 @@ func userInput() {
 			for key, value := range ledger.Accounts {
 				fmt.Println(lookUpIpFromKey(key), value)
 			}
-			fmt.Println(ledger.Accounts.)
 		}
 	}
 }
