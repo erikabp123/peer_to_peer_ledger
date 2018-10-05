@@ -237,22 +237,25 @@ func connectToTrackerList() {
 		}
 	}
 	amountTilWrap = findWrapAround(len(tracker.keys), ourPosition)
-	for i := ourPosition + 1; i < len(tracker); i++ {
-		if !activePeersContainsIp(tracker[i]) {
-			go connectToExistingPeer(tracker[i])
+	for i := ourPosition + 1; i < len(tracker.keys); i++ {
+		ip := tracker.keys[i]
+		if !activePeersContainsIp(ip) {
+			go connectToExistingPeer(ip)
 		}
 	}
-	lessThan11 := len(tracker) < 11
+	lessThan11 := len(tracker.keys) < 11
 	if lessThan11 {
-		for i := 0; i < (len(tracker)-1)-amountTilWrap; i++ {
-			if !activePeersContainsIp(tracker[i]) {
-				go connectToExistingPeer(tracker[i])
+		for i := 0; i < (len(tracker.keys)-1)-amountTilWrap; i++ {
+			ip := tracker.keys[i]
+			if !activePeersContainsIp(ip) {
+				go connectToExistingPeer(ip)
 			}
 		}
 	} else {
 		for i := 0; i < 10-amountTilWrap; i++ {
-			if !activePeersContainsIp(tracker[i]) {
-				go connectToExistingPeer(tracker[i])
+			ip := tracker.keys[i]
+			if !activePeersContainsIp(ip) {
+				go connectToExistingPeer(ip)
 			}
 		}
 	}
