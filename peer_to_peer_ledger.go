@@ -88,13 +88,23 @@ type Transaction struct {
 	Amount int
 }
 
+func lookUpIpFromKey(key string) string {
+	pk := convertJSONStringToPublicKey(key)
+	for ip, privateKey := range tracker.M {
+		if pk == privateKey {
+			return ip
+		}
+	}
+	return "IP NOT FOUND"
+}
+
 func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 	if transactions[t.T.ID] {
 		return
 	}
-	fmt.Println("performing transaction #" + t.T.ID + "... " + t.T.From + " => " + t.T.To + "... Amount: " + strconv.Itoa(t.T.Amount))
+	fmt.Println("performing transaction #" + t.T.ID + "... " + lookUpIpFromKey(t.T.From) + " => " + lookUpIpFromKey(t.T.To) + "... Amount: " + strconv.Itoa(t.T.Amount))
 
 	//check signature
 	n := new(big.Int)
@@ -178,7 +188,10 @@ func userInput() {
 			sendToPeers(newMessage)
 		}
 		if newMessage == "getLedger" {
-			fmt.Println(ledger.Accounts)
+			for key, value := range ledger.Accounts {
+				fmt.Println(lookUpIpFromKey(key), value)
+			}
+			fmt.Println(ledger.Accounts.)
 		}
 	}
 }
