@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/gob"
+	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 	"math/rand"
 	"net"
 	"os"
@@ -68,23 +70,50 @@ func main() {
 
 /* Exercise 6.13 */
 
+func NewSignedTransaction() *SignedTransaction {
+	st := new(SignedTransaction)
+	st.T = new(Transaction)
+	return st
+}
+
 type SignedTransaction struct {
-	ID        string
-	From      string
-	To        string
-	Amount    int
+	T         *Transaction
 	Signature string
+}
+
+type Transaction struct {
+	ID     string
+	From   string
+	To     string
+	Amount int
 }
 
 func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
-	fmt.Println("performing transaction #" + t.ID + "... " + t.From + " => " + t.To + "... Amount: " + strconv.Itoa(t.Amount))
-	validSignature := true
-	if validSignature {
-		l.Accounts[t.From] -= t.Amount
-		l.Accounts[t.To] += t.Amount
+	if transactions[t.T.ID] {
+		return
 	}
+	fmt.Println("performing transaction #" + t.T.ID + "... " + t.T.From + " => " + t.T.To + "... Amount: " + strconv.Itoa(t.T.Amount))
+
+	//check signature
+	n := new(big.Int)
+	n, ok := n.SetString(t.Signature, 10)
+	if !ok {
+		fmt.Println("SetString: error")
+		return
+	}
+	validSignature := account.Verify(n, convertTransactionToBigInt(t.T), convertJSONStringToPublicKey(t.T.From))
+	if !validSignature {
+		return
+	}
+	transactions[t.T.ID] = true
+	l.Accounts[t.T.From] -= t.T.Amount
+	l.Accounts[t.T.To] += t.T.Amount
+	tcpMsg := new(TcpMessage)
+	tcpMsg.Msg = "Transaction"
+	tcpMsg.SignedTransaction = t
+	forwardTransaction(tcpMsg)
 }
 
 /* End of exercise 6.13 */
@@ -142,7 +171,7 @@ func userInput() {
 	for !stop {
 		newMessage, _ := reader.ReadString('\n')
 		newMessage = strings.TrimSuffix(newMessage, "\n")
-		if strings.HasPrefix(newMessage, "t:") {
+		if strings.HasPrefix(newMessage, "send ") {
 			sendToPeers(newMessage)
 		}
 		if newMessage == "getLedger" {
@@ -196,7 +225,7 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		return
 	}
 	if message.Msg == "Transaction" {
-		go forwardTransaction(message)
+		go ledger.SignedTransaction(message.SignedTransaction)
 	}
 
 }
@@ -283,44 +312,63 @@ func accept() {
 	}
 }
 
-func sendToPeers(message string) {
-	str := strings.Split(message, ":")
-	str2 := strings.Split(str[1], ",")
-	transaction := new(SignedTransaction)
+func convertPublicKeyToJSON(key *account.PublicKey) string {
+	output, err := json.Marshal(key)
+	if err != nil {
+		panic(err)
+	}
+	return string(output)
+}
+
+func convertJSONStringToPublicKey(key string) *account.PublicKey {
+	pk := &account.PublicKey{}
+	err := json.Unmarshal([]byte(key), pk)
+	if err != nil {
+		panic(err)
+	}
+	return pk
+}
+
+func convertTransactionToBigInt(transaction *Transaction) *big.Int {
+	var b bytes.Buffer
+	e := gob.NewEncoder(&b)
+	if err := e.Encode(transaction); err != nil {
+		panic(err)
+	}
+	transactionInt := new(big.Int)
+	big.Int.SetBytes(transactionInt, b.Bytes())
+	return transactionInt
+}
+
+func createTransaction(toIP string, amount int) *SignedTransaction {
+	signedTransaction := NewSignedTransaction()
 	rand.Seed(time.Now().UTC().UnixNano())
-	transaction.ID = strconv.Itoa(rand.Int())
-	transaction.From = str2[0]
-	transaction.To = str2[1]
-	transaction.Amount, _ = strconv.Atoi(str2[2])
-	transaction.Signature = ""
+	signedTransaction.T.ID = strconv.Itoa(rand.Int())
+	signedTransaction.T.From = convertPublicKeyToJSON(myPublicKey)
+	signedTransaction.T.To = convertPublicKeyToJSON(tracker.M[toIP])
+	signedTransaction.T.Amount = amount
+	hash := account.Hash(convertTransactionToBigInt(signedTransaction.T))
+	signedTransaction.Signature = account.Sign(hash, mySecretKey).String()
+	return signedTransaction
+}
+
+func sendToPeers(message string) {
+	str := strings.Split(message, " ")
+	to := str[1]
+	amount, _ := strconv.Atoi(str[2])
+	signedTransaction := createTransaction(to, amount)
 	tcpMsg := new(TcpMessage)
 	tcpMsg.Msg = "Transaction"
-	tcpMsg.SignedTransaction = transaction
-	mutexLedger.Lock()
-	if !transactions[transaction.ID] {
-		transactions[transaction.ID] = true
-		ledger.SignedTransaction(transaction)
-	}
-	mutexLedger.Unlock()
+	tcpMsg.SignedTransaction = signedTransaction
+	ledger.SignedTransaction(signedTransaction)
+}
+
+func forwardTransaction(tcpMsg *TcpMessage) {
 	mutexPeers.Lock()
 	for _, peer := range activePeers {
 		marshal(*tcpMsg, peer)
 	}
 	mutexPeers.Unlock()
-}
-
-func forwardTransaction(tcpMsg TcpMessage) {
-	mutexLedger.Lock()
-	if !transactions[tcpMsg.SignedTransaction.ID] {
-		transactions[tcpMsg.SignedTransaction.ID] = true
-		ledger.SignedTransaction(tcpMsg.SignedTransaction)
-		mutexPeers.Lock()
-		for _, peer := range activePeers {
-			marshal(tcpMsg, peer)
-		}
-		mutexPeers.Unlock()
-	}
-	mutexLedger.Unlock()
 }
 
 func randomPort() string {
