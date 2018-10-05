@@ -88,24 +88,13 @@ type Transaction struct {
 	Amount int
 }
 
-func lookUpIpFromKey(key string) string {
-	pk := convertJSONStringToPublicKey(key)
-	for ip, publicKey := range tracker.M {
-		fmt.Println(ip)
-		if pk == publicKey {
-			return ip
-		}
-	}
-	return "IP NOT FOUND"
-}
-
 func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 	if transactions[t.T.ID] {
 		return
 	}
-	fmt.Println("performing transaction #" + t.T.ID + "... " + lookUpIpFromKey(t.T.From) + " => " + lookUpIpFromKey(t.T.To) + "... Amount: " + strconv.Itoa(t.T.Amount))
+	fmt.Println("performing transaction #" + t.T.ID + "... " + t.T.From + " => " + t.T.To + "... Amount: " + strconv.Itoa(t.T.Amount))
 
 	//check signature
 	n := new(big.Int)
@@ -122,7 +111,6 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	transactions[t.T.ID] = true
 	l.Accounts[t.T.From] -= t.T.Amount
 	l.Accounts[t.T.To] += t.T.Amount
-	fmt.Println(l.Accounts)
 	tcpMsg := new(TcpMessage)
 	tcpMsg.Msg = "Transaction"
 	tcpMsg.SignedTransaction = t
@@ -190,7 +178,7 @@ func userInput() {
 		}
 		if newMessage == "getLedger" {
 			for key, value := range ledger.Accounts {
-				fmt.Println(lookUpIpFromKey(key), value)
+				fmt.Println(key, value)
 			}
 		}
 	}
