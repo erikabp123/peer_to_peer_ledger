@@ -113,6 +113,7 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	tcpMsg := new(TcpMessage)
 	tcpMsg.Msg = "Transaction"
 	tcpMsg.SignedTransaction = t
+	tcpMsg.Peers = NewOrderedMap()
 	forwardTransaction(tcpMsg)
 }
 
