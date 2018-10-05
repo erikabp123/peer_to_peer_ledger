@@ -90,8 +90,9 @@ type Transaction struct {
 
 func lookUpIpFromKey(key string) string {
 	pk := convertJSONStringToPublicKey(key)
-	for ip, privateKey := range tracker.M {
-		if pk == privateKey {
+	for ip, publicKey := range tracker.M {
+		fmt.Println(ip)
+		if pk == publicKey {
 			return ip
 		}
 	}
@@ -191,7 +192,6 @@ func userInput() {
 			for key, value := range ledger.Accounts {
 				fmt.Println(lookUpIpFromKey(key), value)
 			}
-			fmt.Println(ledger.Accounts.)
 		}
 	}
 }
