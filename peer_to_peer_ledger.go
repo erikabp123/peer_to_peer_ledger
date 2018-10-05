@@ -21,17 +21,37 @@ var (
 	mutexTracker sync.Mutex
 	activePeers  []net.Conn
 	mutexLedger  sync.Mutex
-	tracker      []string
+	tracker      *OrderedMap
 	ledger       *Ledger
 	port         string
 	transactions map[string]bool
+	myPublicKey  *PublicKey
+	mySecretKey  *SecretKey
 )
 
+type OrderedMap struct {
+	m    map[string]*PublicKey
+	keys []string
+}
+
+func NewOrderedMap() *OrderedMap {
+	om := new(OrderedMap)
+	om.keys = []string{}
+	om.m = map[string]*PublicKey{}
+	return new(OrderedMap)
+}
+
+func (o *OrderedMap) Set(k string, v *PublicKey) {
+	o.m[k] = v
+	o.keys = append(o.keys, k)
+}
+
 func main() {
+	myPublicKey, mySecretKey = KeyGen(256)
 	transactions = make(map[string]bool)
 	port = randomPort()
 	activePeers = []net.Conn{}
-	tracker = []string{}
+	tracker = NewOrderedMap()
 	ledger = MakeLedger()
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Printf("Connect to existing peer (E.g. 0.0.0.0:25556): ")
@@ -70,7 +90,7 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 
 type TcpMessage struct {
 	Msg               string
-	Peers             []string
+	Peers             *OrderedMap
 	SignedTransaction *SignedTransaction
 }
 
@@ -99,7 +119,7 @@ func connectToExistingPeer(ip string) {
 	conn, err := net.Dial("tcp", ip)
 	if err != nil {
 		fmt.Println("Error connecting")
-		tracker = append(tracker, getMyIpAndPort())
+		tracker.Set(getMyIpAndPort(), myPublicKey)
 	} else {
 		fmt.Println("Connected to: " + ip)
 		connect(conn)
@@ -139,6 +159,13 @@ func listen(conn net.Conn) {
 	}
 }
 
+func getFirstKeyOfMap(m map[string]*PublicKey) string {
+	for k := range m {
+		return k
+	}
+	return ""
+}
+
 func checkMessage(message TcpMessage, conn net.Conn) {
 	if message.Msg == "Tracker" {
 		mutexTracker.Lock()
@@ -150,24 +177,27 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 	}
 	if strings.Contains(message.Msg, "Ready") {
 		mutexTracker.Lock()
-		str := strings.Split(message.Msg, "_")
-		tracker = append(tracker, str[1])
+		ip := message.Peers.keys[0]
+		tracker.Set(ip, message.Peers.m[ip])
 		mutexTracker.Unlock()
 		return
 	}
-	if len(message.Peers) > 0 {
+	if len(message.Peers.keys) > 0 {
 		mutexTracker.Lock()
-		for _, newIp := range message.Peers {
-			if !trackerContainsIp(newIp) {
-				tracker = append(tracker, newIp)
+		for _, ip := range message.Peers.keys {
+			if !trackerContainsIp(ip) {
+				tracker.Set(ip, message.Peers.m[ip])
 			}
 		}
 		if !trackerContainsIp(getMyIpAndPort()) {
-			tracker = append(tracker, getMyIpAndPort())
+			tracker.Set(getMyIpAndPort(), myPublicKey)
 		}
 		mutexTracker.Unlock()
 		reply := new(TcpMessage)
-		reply.Msg = "Ready_" + getMyIpAndPort()
+		reply.Msg = "Ready"
+		myInfo := NewOrderedMap()
+		myInfo.Set(getMyIpAndPort(), myPublicKey)
+		reply.Peers = myInfo
 		marshal(*reply, conn)
 		return
 	}
@@ -178,10 +208,9 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 }
 
 func trackerContainsIp(ip string) bool {
-	for _, value := range tracker {
-		if ip == value {
-			return true
-		}
+	_, isInList := tracker.m[ip]
+	if isInList {
+		return true
 	}
 	return false
 }
@@ -201,13 +230,13 @@ func connectToTrackerList() {
 	mutexTracker.Lock()
 	var amountTilWrap int
 	var ourPosition int
-	for key, value := range tracker {
+	for key, value := range tracker.keys {
 		if value == getMyIpAndPort() {
 			ourPosition = key
 			break
 		}
 	}
-	amountTilWrap = findWrapAround(len(tracker), ourPosition)
+	amountTilWrap = findWrapAround(len(tracker.keys), ourPosition)
 	for i := ourPosition + 1; i < len(tracker); i++ {
 		if !activePeersContainsIp(tracker[i]) {
 			go connectToExistingPeer(tracker[i])
