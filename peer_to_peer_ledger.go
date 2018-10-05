@@ -160,13 +160,6 @@ func listen(conn net.Conn) {
 	}
 }
 
-func getFirstKeyOfMap(m map[string]*account.PublicKey) string {
-	for k := range m {
-		return k
-	}
-	return ""
-}
-
 func checkMessage(message TcpMessage, conn net.Conn) {
 	if message.Msg == "Tracker" {
 		mutexTracker.Lock()
