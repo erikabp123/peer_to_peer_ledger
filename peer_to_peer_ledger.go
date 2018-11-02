@@ -29,7 +29,7 @@ var (
 	ledger                  *Ledger
 	port                    string
 	transactions            map[string]bool
-	unsequencedTransactions []Transaction
+	unsequencedTransactions []*SignedTransaction
 	myPublicKey             *account.PublicKey
 	mySecretKey             *account.SecretKey
 	lastBlock               = -1
@@ -56,10 +56,10 @@ func createBlock() *Block {
 	block := new(Block)
 	block.BlockNumber = lastBlock + 1
 	for _, v := range unsequencedTransactions {
-		block.IDS = append(block.IDS, v.ID)
+		block.IDS = append(block.IDS, v.T.ID)
 	}
 	sort.Strings(block.IDS)
-	unsequencedTransactions = []Transaction{}
+	unsequencedTransactions = []*SignedTransaction{}
 	return block
 }
 
@@ -138,13 +138,11 @@ type Transaction struct {
 func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
-	if t.T.Amount <= 0 {
+	if t.T.Amount <= 0 || transactions[t.T.ID] || contains(t) {
+		fmt.Println("Transaction ignored")
 		return
 	}
-	if transactions[t.T.ID] {
-		return
-	}
-	fmt.Println("performing transaction #" + t.T.ID + " " + t.T.From + " => " + t.T.To + "... Amount: " + strconv.Itoa(t.T.Amount))
+	fmt.Println("Transaction #" + t.T.ID + " " + t.T.From + " => " + t.T.To + " amount: " + strconv.Itoa(t.T.Amount))
 
 	//check signature
 	n := new(big.Int)
@@ -158,14 +156,24 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	if !validSignature {
 		return
 	}
-	transactions[t.T.ID] = true
-	l.Accounts[t.T.From] -= t.T.Amount
-	l.Accounts[t.T.To] += t.T.Amount
+	unsequencedTransactions = append(unsequencedTransactions, t)
+	//transactions[t.T.ID] = true
+	//l.Accounts[t.T.From] -= t.T.Amount
+	//l.Accounts[t.T.To] += t.T.Amount
 	tcpMsg := new(TcpMessage)
 	tcpMsg.Msg = "Transaction"
 	tcpMsg.SignedTransaction = t
 	tcpMsg.Peers = NewOrderedMap()
 	forwardTransaction(tcpMsg)
+}
+
+func contains(t *SignedTransaction) bool {
+	for _, a := range unsequencedTransactions {
+		if a.T.ID == t.T.ID {
+			return true
+		}
+	}
+	return false
 }
 
 /* End of exercise 6.13 */
@@ -247,7 +255,7 @@ func listen(conn net.Conn) {
 }
 
 func checkMessage(message TcpMessage, conn net.Conn) {
-	if message.Msg == "Tracker" && phase == 1 {
+	if message.Msg == "Tracker" {
 		mutexTracker.Lock()
 		reply := new(TcpMessage)
 		reply.Peers = tracker
@@ -255,14 +263,29 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		mutexTracker.Unlock()
 		return
 	}
-	if strings.Contains(message.Msg, "Ready") && phase == 1 {
+	if message.Msg == "Forward" {
+		if len(tracker.Keys) < len(message.Peers.Keys) {
+			fmt.Println("Updating tracker list")
+			mutexTracker.Lock()
+			tracker = message.Peers
+			mutexTracker.Unlock()
+		}
+		return
+	}
+	if strings.Contains(message.Msg, "Ready") {
 		mutexTracker.Lock()
 		ip := message.Peers.Keys[0]
 		tracker.Set(ip, message.Peers.M[ip])
+		forward := new(TcpMessage)
+		forward.Msg = "Forward"
+		forward.Peers = tracker
+		for _, conn := range activePeers {
+			marshal(*forward, conn)
+		}
 		mutexTracker.Unlock()
 		return
 	}
-	if len(message.Peers.Keys) > 0 && phase == 1 {
+	if len(message.Peers.Keys) > 0 {
 		mutexTracker.Lock()
 		for _, ip := range message.Peers.Keys {
 			if !trackerContainsIp(ip) {
@@ -298,7 +321,7 @@ func processBlock(block *Block) {
 	if lastBlock+1 != block.BlockNumber {
 		return
 	}
-	panic("processBlock is not implemented! Must now process transactions according to block")
+
 }
 
 func trackerContainsIp(ip string) bool {
@@ -334,7 +357,7 @@ func connectToTrackerList() {
 	for i := ourPosition + 1; i < len(tracker.Keys); i++ {
 		ip := tracker.Keys[i]
 		if !activePeersContainsIp(ip) {
-			go connectToExistingPeer(ip)
+			connectToExistingPeer(ip)
 		}
 	}
 	lessThan11 := len(tracker.Keys) < 11
@@ -342,17 +365,18 @@ func connectToTrackerList() {
 		for i := 0; i < (len(tracker.Keys)-1)-amountTilWrap; i++ {
 			ip := tracker.Keys[i]
 			if !activePeersContainsIp(ip) {
-				go connectToExistingPeer(ip)
+				connectToExistingPeer(ip)
 			}
 		}
 	} else {
 		for i := 0; i < 10-amountTilWrap; i++ {
 			ip := tracker.Keys[i]
 			if !activePeersContainsIp(ip) {
-				go connectToExistingPeer(ip)
+				connectToExistingPeer(ip)
 			}
 		}
 	}
+	fmt.Println(activePeers)
 	mutexTracker.Unlock()
 }
 
@@ -372,13 +396,13 @@ func accept() {
 		log.Fatal(err)
 		fmt.Println("Error listening to port " + port)
 	}
-	for phase == 1 {
+	for !stop {
 		newPeer, err := ln.Accept()
 		if err != nil {
 			log.Fatal(err)
 			fmt.Println("Error accepting connection from peer")
 		}
-		fmt.Println("New peer: " + newPeer.RemoteAddr().String())
+		fmt.Println("New peer")
 		connect(newPeer)
 	}
 }
@@ -416,6 +440,7 @@ func createTransaction(toIP string, amount int) *SignedTransaction {
 	rand.Seed(time.Now().UTC().UnixNano())
 	signedTransaction.T.ID = strconv.Itoa(rand.Int())
 	signedTransaction.T.From = convertPublicKeyToJSON(myPublicKey)
+	fmt.Println(tracker)
 	signedTransaction.T.To = convertPublicKeyToJSON(tracker.M[toIP])
 	signedTransaction.T.Amount = amount
 	hash := account.Hash(convertTransactionToBigInt(signedTransaction.T))
