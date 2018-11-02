@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"crypto/sha256"
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
@@ -54,6 +53,7 @@ type OrderedMap struct {
 func createBlock() *Block {
 	block := new(Block)
 	block.BlockNumber = lastBlock + 1
+	return block
 }
 
 func signBlock(block *Block) *SignedBlock {
@@ -64,7 +64,7 @@ func signBlock(block *Block) *SignedBlock {
 	if err != nil {
 		log.Fatal("encode error:", err)
 	}
-	hash := big.Int{}.SetBytes(buffer.Bytes())
+	hash := new(big.Int).SetBytes(buffer.Bytes())
 	signature := account.Sign(hash, mySecretKey)
 	signedBlock := new(SignedBlock)
 	signedBlock.B = block
@@ -86,14 +86,10 @@ func (o *OrderedMap) Set(k string, v *account.PublicKey) {
 
 func main() {
 	phase = 1
-	PhaseOne()
-
-	for !stop {
-		time.Sleep(5000 * time.Millisecond) // keep alive
-	}
+	initialize()
 }
 
-func PhaseOne() {
+func initialize() {
 	myPublicKey, mySecretKey = account.KeyGen(256)
 	transactions = make(map[string]bool)
 	port = randomPort()
@@ -107,10 +103,9 @@ func PhaseOne() {
 	connectToExistingPeer(ip)
 	go userInput()
 	go accept()
-}
-
-func PhaseTwo() {
-
+	for !stop {
+		time.Sleep(5000 * time.Millisecond) // keep alive
+	}
 }
 
 /* Exercise 6.13 */
@@ -245,50 +240,50 @@ func listen(conn net.Conn) {
 }
 
 func checkMessage(message TcpMessage, conn net.Conn) {
-		if message.Msg == "Tracker" && phase == 1 {
-			mutexTracker.Lock()
-			reply := new(TcpMessage)
-			reply.Peers = tracker
-			marshal(*reply, conn)
-			mutexTracker.Unlock()
-			return
-		}
-		if strings.Contains(message.Msg, "Ready") && phase == 1 {
-			mutexTracker.Lock()
-			ip := message.Peers.Keys[0]
-			tracker.Set(ip, message.Peers.M[ip])
-			mutexTracker.Unlock()
-			return
-		}
-		if len(message.Peers.Keys) > 0 && phase == 1 {
-			mutexTracker.Lock()
-			for _, ip := range message.Peers.Keys {
-				if !trackerContainsIp(ip) {
-					tracker.Set(ip, message.Peers.M[ip])
-				}
+	if message.Msg == "Tracker" && phase == 1 {
+		mutexTracker.Lock()
+		reply := new(TcpMessage)
+		reply.Peers = tracker
+		marshal(*reply, conn)
+		mutexTracker.Unlock()
+		return
+	}
+	if strings.Contains(message.Msg, "Ready") && phase == 1 {
+		mutexTracker.Lock()
+		ip := message.Peers.Keys[0]
+		tracker.Set(ip, message.Peers.M[ip])
+		mutexTracker.Unlock()
+		return
+	}
+	if len(message.Peers.Keys) > 0 && phase == 1 {
+		mutexTracker.Lock()
+		for _, ip := range message.Peers.Keys {
+			if !trackerContainsIp(ip) {
+				tracker.Set(ip, message.Peers.M[ip])
 			}
-			if !trackerContainsIp(getMyIpAndPort()) {
-				tracker.Set(getMyIpAndPort(), myPublicKey)
-			}
-			mutexTracker.Unlock()
-			reply := new(TcpMessage)
-			reply.Msg = "Ready"
-			myInfo := NewOrderedMap()
-			myInfo.Set(getMyIpAndPort(), myPublicKey)
-			reply.Peers = myInfo
-			marshal(*reply, conn)
-			return
 		}
-		if message.Msg == "Transaction" {
-			if phase == 1 {
-				fmt.Println("Phase 2")
-				phase = 2
-			}
-			go ledger.SignedTransaction(message.SignedTransaction)
+		if !trackerContainsIp(getMyIpAndPort()) {
+			tracker.Set(getMyIpAndPort(), myPublicKey)
 		}
-		if message.Msg == "Signed Block" {
-			processBlock(message.Block)
+		mutexTracker.Unlock()
+		reply := new(TcpMessage)
+		reply.Msg = "Ready"
+		myInfo := NewOrderedMap()
+		myInfo.Set(getMyIpAndPort(), myPublicKey)
+		reply.Peers = myInfo
+		marshal(*reply, conn)
+		return
+	}
+	if message.Msg == "Transaction" {
+		if phase == 1 {
+			fmt.Println("Phase 2")
+			phase = 2
 		}
+		go ledger.SignedTransaction(message.SignedTransaction)
+	}
+	if message.Msg == "Signed Block" {
+		processBlock(message.Block)
+	}
 
 }
 
