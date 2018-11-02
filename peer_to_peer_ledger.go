@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
@@ -30,11 +31,44 @@ var (
 	transactions map[string]bool
 	myPublicKey  *account.PublicKey
 	mySecretKey  *account.SecretKey
+	lastBlock    = -1
 )
+
+type Block struct {
+	BlockNumber int
+	IDS []string
+}
+
+type SignedBlock struct {
+	B *Block
+	Signature *big.Int
+}
 
 type OrderedMap struct {
 	M    map[string]*account.PublicKey
 	Keys []string
+}
+
+func createBlock() *Block {
+	block := new(Block)
+	block.BlockNumber = lastBlock + 1
+	block.IDS =
+}
+
+func signBlock(block *Block) *SignedBlock {
+	var buffer bytes.Buffer
+	enc := gob.NewEncoder(&buffer)
+	// Encode (send) the value.
+	err := enc.Encode(block)
+	if err != nil {
+		log.Fatal("encode error:", err)
+	}
+	hash := big.Int{}.SetBytes(buffer.Bytes())
+	signature := account.Sign(hash, mySecretKey)
+	signedBlock := new(SignedBlock)
+	signedBlock.B = block
+	signedBlock.Signature = signature
+	return signedBlock
 }
 
 func NewOrderedMap() *OrderedMap {
@@ -124,6 +158,7 @@ type TcpMessage struct {
 	Msg               string
 	Peers             *OrderedMap
 	SignedTransaction *SignedTransaction
+	Block			  *Block
 }
 
 type Ledger struct {
@@ -231,7 +266,18 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 	if message.Msg == "Transaction" {
 		go ledger.SignedTransaction(message.SignedTransaction)
 	}
+	if message.Msg == "Signed Block" {
+		processBlock(message.Block)
+	}
 
+}
+
+func processBlock(block  *Block){
+	if lastBlock+1 != block.BlockNumber {
+		return
+	}
+	if
+	panic("processBlock is not implemented! Must now process transactions according to block")
 }
 
 func trackerContainsIp(ip string) bool {
