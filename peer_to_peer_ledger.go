@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"peer_to_peer_ledger/account"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,20 +20,21 @@ import (
 )
 
 var (
-	stop         = false
-	mutexPeers   sync.Mutex
-	mutexTracker sync.Mutex
-	activePeers  []net.Conn
-	mutexLedger  sync.Mutex
-	tracker      *OrderedMap
-	ledger       *Ledger
-	port         string
-	transactions map[string]bool
-	myPublicKey  *account.PublicKey
-	mySecretKey  *account.SecretKey
-	lastBlock    = -1
-	phase        int
-	sequencer    bool
+	stop                    = false
+	mutexPeers              sync.Mutex
+	mutexTracker            sync.Mutex
+	activePeers             []net.Conn
+	mutexLedger             sync.Mutex
+	tracker                 *OrderedMap
+	ledger                  *Ledger
+	port                    string
+	transactions            map[string]bool
+	unsequencedTransactions []Transaction
+	myPublicKey             *account.PublicKey
+	mySecretKey             *account.SecretKey
+	lastBlock               = -1
+	phase                   int
+	sequencer               bool
 )
 
 type Block struct {
@@ -53,6 +55,14 @@ type OrderedMap struct {
 func createBlock() *Block {
 	block := new(Block)
 	block.BlockNumber = lastBlock + 1
+<<<<<<< HEAD
+=======
+	for _, v := range unsequencedTransactions {
+		block.IDS = append(block.IDS, v.ID)
+	}
+	sort.Strings(block.IDS)
+	unsequencedTransactions = []Transaction{}
+>>>>>>> ed8921712ac96a4ac031aeebbbb6a6d110a8aef1
 	return block
 }
 
