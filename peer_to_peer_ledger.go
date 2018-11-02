@@ -36,11 +36,11 @@ var (
 
 type Block struct {
 	BlockNumber int
-	IDS []string
+	IDS         []string
 }
 
 type SignedBlock struct {
-	B *Block
+	B         *Block
 	Signature *big.Int
 }
 
@@ -157,7 +157,7 @@ type TcpMessage struct {
 	Msg               string
 	Peers             *OrderedMap
 	SignedTransaction *SignedTransaction
-	Block			  *Block
+	Block             *Block
 }
 
 type Ledger struct {
@@ -271,11 +271,10 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 
 }
 
-func processBlock(block  *Block){
+func processBlock(block *Block) {
 	if lastBlock+1 != block.BlockNumber {
 		return
 	}
-	if
 	panic("processBlock is not implemented! Must now process transactions according to block")
 }
 
