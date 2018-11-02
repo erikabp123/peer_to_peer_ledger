@@ -124,6 +124,9 @@ type Transaction struct {
 func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
+	if t.T.Amount <= 0 {
+		return
+	}
 	if transactions[t.T.ID] {
 		return
 	}
