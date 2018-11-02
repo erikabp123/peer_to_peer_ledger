@@ -52,7 +52,6 @@ type OrderedMap struct {
 func createBlock() *Block {
 	block := new(Block)
 	block.BlockNumber = lastBlock + 1
-	block.IDS =
 }
 
 func signBlock(block *Block) *SignedBlock {
