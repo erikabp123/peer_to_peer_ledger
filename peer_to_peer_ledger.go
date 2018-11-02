@@ -65,7 +65,7 @@ func createBlock() *Block {
 
 func signBlock(block *Block) *SignedBlock {
 	blockAsInt := convertBlockToInt(block)
-	signature := account.Sign(blockAsInt, mySecretKey)
+	signature := account.Sign(account.Hash(blockAsInt), mySecretKey)
 	signedBlock := new(SignedBlock)
 	signedBlock.B = block
 	signedBlock.Signature = signature
@@ -163,6 +163,9 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 		fmt.Println("SetString: error")
 		return
 	}
+	fmt.Println("valid...Signature:", n)
+	fmt.Println("valid...msg:", convertTransactionToBigInt(t.T))
+	fmt.Println("valid...key:", convertJSONStringToPublicKey(t.T.From))
 	validSignature := account.Verify(n, convertTransactionToBigInt(t.T), convertJSONStringToPublicKey(t.T.From))
 	fmt.Println("Validating signature:", validSignature)
 	if !validSignature {
@@ -491,11 +494,15 @@ func createTransaction(toIP string, amount int) *SignedTransaction {
 	rand.Seed(time.Now().UTC().UnixNano())
 	signedTransaction.T.ID = strconv.Itoa(rand.Int())
 	signedTransaction.T.From = convertPublicKeyToJSON(myPublicKey)
-	fmt.Println(tracker)
 	signedTransaction.T.To = convertPublicKeyToJSON(tracker.M[toIP])
 	signedTransaction.T.Amount = amount
 	hash := account.Hash(convertTransactionToBigInt(signedTransaction.T))
 	signedTransaction.Signature = account.Sign(hash, mySecretKey).String()
+
+	fmt.Println("create...Signature:", signedTransaction.Signature)
+	fmt.Println("create...msg:", convertTransactionToBigInt(signedTransaction.T))
+	fmt.Println("create...key:", myPublicKey)
+
 	return signedTransaction
 }
 
