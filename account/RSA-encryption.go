@@ -113,7 +113,7 @@ func KeyGen(k int) (*PublicKey, *SecretKey) {
 
 func Verify(sig *big.Int, msg *big.Int, pk *PublicKey) bool {
 	originalMsg := Encrypt(sig, pk)
-	if originalMsg.Cmp(Hash(msg)) == 0 {
+	if originalMsg.Cmp(msg) == 0 {
 		return true
 	}
 	return false

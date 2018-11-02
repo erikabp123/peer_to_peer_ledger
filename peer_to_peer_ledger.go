@@ -29,7 +29,7 @@ var (
 	ledger                  *Ledger
 	port                    string
 	transactions            map[string]bool
-	unsequencedTransactions []Transaction
+	unsequencedTransactions []*SignedTransaction
 	myPublicKey             *account.PublicKey
 	mySecretKey             *account.SecretKey
 	lastBlock               = -1
@@ -56,23 +56,16 @@ func createBlock() *Block {
 	block := new(Block)
 	block.BlockNumber = lastBlock + 1
 	for _, v := range unsequencedTransactions {
-		block.IDS = append(block.IDS, v.ID)
+		block.IDS = append(block.IDS, v.T.ID)
 	}
 	sort.Strings(block.IDS)
-	unsequencedTransactions = []Transaction{}
+	unsequencedTransactions = []*SignedTransaction{}
 	return block
 }
 
 func signBlock(block *Block) *SignedBlock {
-	var buffer bytes.Buffer
-	enc := gob.NewEncoder(&buffer)
-	// Encode (send) the value.
-	err := enc.Encode(block)
-	if err != nil {
-		log.Fatal("encode error:", err)
-	}
-	hash := new(big.Int).SetBytes(buffer.Bytes())
-	signature := account.Sign(hash, mySecretKey)
+	blockAsInt := convertBlockToInt(block)
+	signature := account.Sign(blockAsInt, mySecretKey)
 	signedBlock := new(SignedBlock)
 	signedBlock.B = block
 	signedBlock.Signature = signature
@@ -110,8 +103,27 @@ func initialize() {
 	connectToExistingPeer(ip)
 	go userInput()
 	go accept()
+	go createBlocks()
 	for !stop {
 		time.Sleep(5000 * time.Millisecond) // keep alive
+	}
+}
+
+func createBlocks() {
+	if !sequencer {
+		return
+	}
+	for !stop {
+		signedBlock := signBlock(createBlock())
+		reply := new(TcpMessage)
+		reply.Msg = "Signed Block"
+		reply.SignedBlock = signedBlock
+		mutexPeers.Lock()
+		for _, peer := range activePeers {
+			marshal(*reply, peer)
+		}
+		mutexPeers.Unlock()
+		time.Sleep(10000 * time.Millisecond)
 	}
 }
 
@@ -158,9 +170,6 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	if !validSignature {
 		return
 	}
-	transactions[t.T.ID] = true
-	l.Accounts[t.T.From] -= t.T.Amount
-	l.Accounts[t.T.To] += t.T.Amount
 	tcpMsg := new(TcpMessage)
 	tcpMsg.Msg = "Transaction"
 	tcpMsg.SignedTransaction = t
@@ -174,7 +183,7 @@ type TcpMessage struct {
 	Msg               string
 	Peers             *OrderedMap
 	SignedTransaction *SignedTransaction
-	Block             *Block
+	SignedBlock       *SignedBlock
 }
 
 type Ledger struct {
@@ -247,22 +256,23 @@ func listen(conn net.Conn) {
 }
 
 func checkMessage(message TcpMessage, conn net.Conn) {
-	if message.Msg == "Tracker" && phase == 1 {
+	if phase == 1 && message.Msg == "Tracker" {
 		mutexTracker.Lock()
 		reply := new(TcpMessage)
 		reply.Peers = tracker
+		reply.Msg = "Tracker List"
 		marshal(*reply, conn)
 		mutexTracker.Unlock()
 		return
 	}
-	if strings.Contains(message.Msg, "Ready") && phase == 1 {
+	if phase == 1 && message.Msg == "Ready" {
 		mutexTracker.Lock()
 		ip := message.Peers.Keys[0]
 		tracker.Set(ip, message.Peers.M[ip])
 		mutexTracker.Unlock()
 		return
 	}
-	if len(message.Peers.Keys) > 0 && phase == 1 {
+	if phase == 1 && message.Msg == "Tracker List" {
 		mutexTracker.Lock()
 		for _, ip := range message.Peers.Keys {
 			if !trackerContainsIp(ip) {
@@ -289,16 +299,57 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		go ledger.SignedTransaction(message.SignedTransaction)
 	}
 	if message.Msg == "Signed Block" {
-		processBlock(message.Block)
+		processBlock(message.SignedBlock)
 	}
 
 }
 
-func processBlock(block *Block) {
-	if lastBlock+1 != block.BlockNumber {
+func convertBlockToInt(block *Block) *big.Int {
+	var buffer bytes.Buffer
+	enc := gob.NewEncoder(&buffer)
+	err := enc.Encode(block)
+	if err != nil {
+		log.Fatal("encode error:", err)
+	}
+	blockAsInt := new(big.Int).SetBytes(buffer.Bytes())
+	return blockAsInt
+}
+
+func processBlock(signedBlock *SignedBlock) {
+	blockAsInt := convertBlockToInt(signedBlock.B)
+	sequencerPK := tracker.M[tracker.Keys[0]]
+	verification := account.Verify(signedBlock.Signature, blockAsInt, sequencerPK)
+	if !verification {
+		fmt.Println("Block failed verification!")
 		return
 	}
-	panic("processBlock is not implemented! Must now process transactions according to block")
+	block := signedBlock.B
+	if block.BlockNumber != lastBlock+1 {
+		fmt.Println("Wrong block number! Was:", block.BlockNumber, "... Expected:", lastBlock+1)
+		return
+	}
+	lastBlock++
+
+	for _, id := range block.IDS {
+		for key, signedTransaction := range unsequencedTransactions {
+			if id == signedTransaction.T.ID {
+				continue
+			}
+			performTransaction(signedTransaction)
+			unsequencedTransactions[key] = unsequencedTransactions[len(unsequencedTransactions)-1]
+			unsequencedTransactions[len(unsequencedTransactions)-1] = nil
+			unsequencedTransactions = unsequencedTransactions[:len(unsequencedTransactions)-1]
+		}
+	}
+}
+
+func performTransaction(t *SignedTransaction) {
+	transactions[t.T.ID] = true
+	if ledger.Accounts[t.T.From] < t.T.Amount {
+		return
+	}
+	ledger.Accounts[t.T.From] -= t.T.Amount
+	ledger.Accounts[t.T.To] += t.T.Amount
 }
 
 func trackerContainsIp(ip string) bool {
