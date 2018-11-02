@@ -55,14 +55,11 @@ type OrderedMap struct {
 func createBlock() *Block {
 	block := new(Block)
 	block.BlockNumber = lastBlock + 1
-<<<<<<< HEAD
-=======
 	for _, v := range unsequencedTransactions {
 		block.IDS = append(block.IDS, v.ID)
 	}
 	sort.Strings(block.IDS)
 	unsequencedTransactions = []Transaction{}
->>>>>>> ed8921712ac96a4ac031aeebbbb6a6d110a8aef1
 	return block
 }
 
