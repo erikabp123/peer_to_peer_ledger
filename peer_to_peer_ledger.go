@@ -30,6 +30,8 @@ var (
 	transactions map[string]bool
 	myPublicKey  *account.PublicKey
 	mySecretKey  *account.SecretKey
+	phase        int
+	sequencer    bool
 )
 
 type OrderedMap struct {
@@ -50,6 +52,15 @@ func (o *OrderedMap) Set(k string, v *account.PublicKey) {
 }
 
 func main() {
+	phase = 1
+	PhaseOne()
+
+	for !stop {
+		time.Sleep(5000 * time.Millisecond) // keep alive
+	}
+}
+
+func PhaseOne() {
 	myPublicKey, mySecretKey = account.KeyGen(256)
 	transactions = make(map[string]bool)
 	port = randomPort()
@@ -63,9 +74,10 @@ func main() {
 	connectToExistingPeer(ip)
 	go userInput()
 	go accept()
-	for !stop {
-		time.Sleep(5000 * time.Millisecond) // keep alive
-	}
+}
+
+func PhaseTwo() {
+
 }
 
 /* Exercise 6.13 */
@@ -97,7 +109,7 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	if transactions[t.T.ID] {
 		return
 	}
-	fmt.Println("performing transaction #" + t.T.ID + "... " + t.T.From + " => " + t.T.To + "... Amount: " + strconv.Itoa(t.T.Amount))
+	fmt.Println("performing transaction #" + t.T.ID + " " + t.T.From + " => " + t.T.To + "... Amount: " + strconv.Itoa(t.T.Amount))
 
 	//check signature
 	n := new(big.Int)
@@ -107,7 +119,7 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 		return
 	}
 	validSignature := account.Verify(n, convertTransactionToBigInt(t.T), convertJSONStringToPublicKey(t.T.From))
-	fmt.Println("Validating signature...:", validSignature)
+	fmt.Println("Validating signature:", validSignature)
 	if !validSignature {
 		return
 	}
@@ -153,10 +165,12 @@ func connectToExistingPeer(ip string) {
 	fmt.Println("Connecting...")
 	conn, err := net.Dial("tcp", ip)
 	if err != nil {
-		fmt.Println("Error connecting")
+		fmt.Println("You are now the sequencer. Awaiting phase two.")
+		sequencer = true
 		tracker.Set(getMyIpAndPort(), myPublicKey)
 	} else {
 		fmt.Println("Connected to: " + ip)
+		sequencer = false
 		connect(conn)
 		tcpMessage := new(TcpMessage)
 		tcpMessage.Msg = "Tracker"
@@ -173,13 +187,13 @@ func connect(conn net.Conn) {
 
 func userInput() {
 	reader := bufio.NewReader(os.Stdin)
-	for !stop {
+	for phase == 1 {
 		newMessage, _ := reader.ReadString('\n')
 		newMessage = strings.TrimSuffix(newMessage, "\n")
 		if strings.HasPrefix(newMessage, "send ") {
 			sendToPeers(newMessage)
 		}
-		if newMessage == "getLedger" {
+		if newMessage == "get ledger" {
 			for key, value := range ledger.Accounts {
 				fmt.Println(key, value)
 			}
@@ -197,44 +211,49 @@ func listen(conn net.Conn) {
 }
 
 func checkMessage(message TcpMessage, conn net.Conn) {
-	if message.Msg == "Tracker" {
-		mutexTracker.Lock()
-		reply := new(TcpMessage)
-		reply.Peers = tracker
-		marshal(*reply, conn)
-		mutexTracker.Unlock()
-		return
-	}
-	if strings.Contains(message.Msg, "Ready") {
-		mutexTracker.Lock()
-		ip := message.Peers.Keys[0]
-		tracker.Set(ip, message.Peers.M[ip])
-		mutexTracker.Unlock()
-		return
-	}
-	if len(message.Peers.Keys) > 0 {
-		mutexTracker.Lock()
-		for _, ip := range message.Peers.Keys {
-			if !trackerContainsIp(ip) {
-				tracker.Set(ip, message.Peers.M[ip])
+	if phase == 1 {
+		if message.Msg == "Tracker" && phase == 1 {
+			mutexTracker.Lock()
+			reply := new(TcpMessage)
+			reply.Peers = tracker
+			marshal(*reply, conn)
+			mutexTracker.Unlock()
+			return
+		}
+		if strings.Contains(message.Msg, "Ready") && phase == 1 {
+			mutexTracker.Lock()
+			ip := message.Peers.Keys[0]
+			tracker.Set(ip, message.Peers.M[ip])
+			mutexTracker.Unlock()
+			return
+		}
+		if len(message.Peers.Keys) > 0 && phase == 1 {
+			mutexTracker.Lock()
+			for _, ip := range message.Peers.Keys {
+				if !trackerContainsIp(ip) {
+					tracker.Set(ip, message.Peers.M[ip])
+				}
 			}
+			if !trackerContainsIp(getMyIpAndPort()) {
+				tracker.Set(getMyIpAndPort(), myPublicKey)
+			}
+			mutexTracker.Unlock()
+			reply := new(TcpMessage)
+			reply.Msg = "Ready"
+			myInfo := NewOrderedMap()
+			myInfo.Set(getMyIpAndPort(), myPublicKey)
+			reply.Peers = myInfo
+			marshal(*reply, conn)
+			return
 		}
-		if !trackerContainsIp(getMyIpAndPort()) {
-			tracker.Set(getMyIpAndPort(), myPublicKey)
+		if message.Msg == "Transaction" {
+			if phase == 1 {
+				fmt.Println("Phase 2")
+				phase = 2
+			}
+			go ledger.SignedTransaction(message.SignedTransaction)
 		}
-		mutexTracker.Unlock()
-		reply := new(TcpMessage)
-		reply.Msg = "Ready"
-		myInfo := NewOrderedMap()
-		myInfo.Set(getMyIpAndPort(), myPublicKey)
-		reply.Peers = myInfo
-		marshal(*reply, conn)
-		return
 	}
-	if message.Msg == "Transaction" {
-		go ledger.SignedTransaction(message.SignedTransaction)
-	}
-
 }
 
 func trackerContainsIp(ip string) bool {
@@ -308,7 +327,7 @@ func accept() {
 		log.Fatal(err)
 		fmt.Println("Error listening to port " + port)
 	}
-	for !stop {
+	for phase == 1 {
 		newPeer, err := ln.Accept()
 		if err != nil {
 			log.Fatal(err)
