@@ -369,6 +369,12 @@ func processBlock(signedBlock *SignedBlock) {
 	fmt.Println("Processed block #", lastBlock)
 }
 
+func createAccounts(amount int, startingMoney int) {
+	for i := 0; i < amount; i++ {
+		ledger.Accounts[i] = startingMoney
+	}
+}
+
 func performTransaction(t *SignedTransaction) {
 	transactions[t.T.ID] = true
 	if ledger.Accounts[t.T.From] < t.T.Amount {
