@@ -352,11 +352,11 @@ func processBlock(signedBlock *SignedBlock) {
 		return
 	}
 	block := signedBlock.B
-	if block.BlockNumber != lastBlock+1 {
+	if block.BlockNumber != lastBlock+1 && lastBlock != -1 {
 		fmt.Println("Wrong block number! Was:", block.BlockNumber, "... Expected:", lastBlock+1)
 		return
 	}
-	lastBlock++
+	lastBlock = block.BlockNumber
 
 	for _, id := range block.IDS {
 		for key, signedTransaction := range unsequencedTransactions {
