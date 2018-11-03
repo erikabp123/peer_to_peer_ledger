@@ -376,12 +376,12 @@ func createAccounts(amount int, startingMoney int) {
 }
 
 func performTransaction(t *SignedTransaction) {
-	transactions[t.T.ID] = true
 	if ledger.Accounts[t.T.From] < t.T.Amount {
 		return
 	}
 	ledger.Accounts[t.T.From] -= t.T.Amount
 	ledger.Accounts[t.T.To] += t.T.Amount
+	transactions[t.T.ID] = true
 }
 
 func trackerContainsIp(ip string) bool {
