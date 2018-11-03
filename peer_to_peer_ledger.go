@@ -378,14 +378,12 @@ func processBlock(signedBlock *SignedBlock) {
 
 	mutexUnsequenced.Lock()
 	for _, id := range block.IDS {
-		for key, signedTransaction := range unsequencedTransactions {
-			if id == signedTransaction.T.ID {
-				continue
+		for i := 0; i < len(unsequencedTransactions); i++ {
+			if unsequencedTransactions[i].T.ID == id {
+				performTransaction(unsequencedTransactions[i])
+				unsequencedTransactions = append(unsequencedTransactions[:i], unsequencedTransactions[i+1:]...)
+				i--
 			}
-			performTransaction(signedTransaction)
-			unsequencedTransactions[key] = unsequencedTransactions[len(unsequencedTransactions)-1]
-			unsequencedTransactions[len(unsequencedTransactions)-1] = nil
-			unsequencedTransactions = unsequencedTransactions[:len(unsequencedTransactions)-1]
 		}
 	}
 	mutexUnsequenced.Unlock()
