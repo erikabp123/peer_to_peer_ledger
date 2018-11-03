@@ -64,6 +64,7 @@ func createBlock() *Block {
 }
 
 func signBlock(block *Block) *SignedBlock {
+	fmt.Println("Block when being signed:", block)
 	blockAsInt := convertBlockToInt(block)
 	signature := account.Sign(account.Hash(blockAsInt), mySecretKey)
 	signedBlock := new(SignedBlock)
@@ -90,7 +91,7 @@ func main() {
 }
 
 func initialize() {
-	myPublicKey, mySecretKey = account.KeyGen(256)
+	myPublicKey, mySecretKey = account.KeyGen(512)
 	transactions = make(map[string]bool)
 	port = randomPort()
 	activePeers = []net.Conn{}
@@ -331,9 +332,10 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 }
 
 func convertBlockToInt(block *Block) *big.Int {
+	str := fmt.Sprintf("%#v", block)
 	var buffer bytes.Buffer
 	enc := gob.NewEncoder(&buffer)
-	err := enc.Encode(block)
+	err := enc.Encode(str)
 	if err != nil {
 		log.Fatal("encode error:", err)
 	}
