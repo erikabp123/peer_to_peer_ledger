@@ -241,13 +241,13 @@ func connect(conn net.Conn) {
 
 func userInput() {
 	reader := bufio.NewReader(os.Stdin)
-	for phase == 1 {
+	for {
 		newMessage, _ := reader.ReadString('\n')
 		newMessage = strings.TrimSuffix(newMessage, "\n")
 		if strings.HasPrefix(newMessage, "send ") {
 			sendToPeers(newMessage)
 		}
-		if newMessage == "get ledger" {
+		if newMessage == "ledger" {
 			for key, value := range ledger.Accounts {
 				fmt.Println(key, value)
 			}
@@ -260,7 +260,7 @@ func listen(conn net.Conn) {
 		dec := gob.NewDecoder(conn)
 		p := &TcpMessage{}
 		dec.Decode(p)
-		checkMessage(*p, conn)
+		go checkMessage(*p, conn)
 	}
 }
 
@@ -366,7 +366,6 @@ func processBlock(signedBlock *SignedBlock) {
 			unsequencedTransactions = unsequencedTransactions[:len(unsequencedTransactions)-1]
 		}
 	}
-	fmt.Println("Processed block #", lastBlock)
 }
 
 func createAccounts(amount int, startingMoney int) {
