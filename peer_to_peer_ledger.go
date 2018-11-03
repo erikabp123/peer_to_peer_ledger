@@ -371,7 +371,7 @@ func processBlock(signedBlock *SignedBlock) {
 
 func createAccounts(amount int, startingMoney int) {
 	for i := 0; i < amount; i++ {
-		ledger.Accounts[string(i)] = startingMoney
+		ledger.Accounts[strconv.Itoa(i)] = startingMoney
 	}
 }
 
