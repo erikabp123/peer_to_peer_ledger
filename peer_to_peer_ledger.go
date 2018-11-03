@@ -489,28 +489,24 @@ func convertTransactionToBigInt(transaction *Transaction) *big.Int {
 	return transactionInt
 }
 
-func createTransaction(toIP string, amount int) *SignedTransaction {
+func createTransaction(fromIP string, toIP string, amount int) *SignedTransaction {
 	signedTransaction := NewSignedTransaction()
 	rand.Seed(time.Now().UTC().UnixNano())
 	signedTransaction.T.ID = strconv.Itoa(rand.Int())
-	signedTransaction.T.From = convertPublicKeyToJSON(myPublicKey)
+	signedTransaction.T.From = convertPublicKeyToJSON(tracker.M[fromIP])
 	signedTransaction.T.To = convertPublicKeyToJSON(tracker.M[toIP])
 	signedTransaction.T.Amount = amount
 	hash := account.Hash(convertTransactionToBigInt(signedTransaction.T))
 	signedTransaction.Signature = account.Sign(hash, mySecretKey).String()
-
-	fmt.Println("create...Signature:", signedTransaction.Signature)
-	fmt.Println("create...msg:", convertTransactionToBigInt(signedTransaction.T))
-	fmt.Println("create...key:", myPublicKey)
-
 	return signedTransaction
 }
 
 func sendToPeers(message string) {
 	str := strings.Split(message, " ")
-	to := str[1]
-	amount, _ := strconv.Atoi(str[2])
-	signedTransaction := createTransaction(to, amount)
+	from := str[1]
+	to := str[2]
+	amount, _ := strconv.Atoi(str[3])
+	signedTransaction := createTransaction(from, to, amount)
 	tcpMsg := new(TcpMessage)
 	tcpMsg.Msg = "Transaction"
 	tcpMsg.SignedTransaction = signedTransaction
