@@ -60,11 +60,11 @@ func createBlock() *Block {
 	}
 	sort.Strings(block.IDS)
 	unsequencedTransactions = []*SignedTransaction{}
+	lastBlock++
 	return block
 }
 
 func signBlock(block *Block) *SignedBlock {
-	fmt.Println("Block when being signed:", block)
 	blockAsInt := convertBlockToInt(block)
 	signature := account.Sign(account.Hash(blockAsInt), mySecretKey)
 	signedBlock := new(SignedBlock)
@@ -164,9 +164,6 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 		fmt.Println("SetString: error")
 		return
 	}
-	fmt.Println("valid...Signature:", n)
-	fmt.Println("valid...msg:", convertTransactionToBigInt(t.T))
-	fmt.Println("valid...key:", convertJSONStringToPublicKey(t.T.From))
 	validSignature := account.Verify(n, convertTransactionToBigInt(t.T), convertJSONStringToPublicKey(t.T.From))
 	fmt.Println("Validating signature:", validSignature)
 	if !validSignature {
@@ -352,7 +349,7 @@ func processBlock(signedBlock *SignedBlock) {
 		return
 	}
 	block := signedBlock.B
-	if block.BlockNumber != lastBlock+1 && lastBlock != -1 {
+	if lastBlock != -1 && block.BlockNumber != lastBlock+1 {
 		fmt.Println("Wrong block number! Was:", block.BlockNumber, "... Expected:", lastBlock+1)
 		return
 	}
@@ -369,6 +366,7 @@ func processBlock(signedBlock *SignedBlock) {
 			unsequencedTransactions = unsequencedTransactions[:len(unsequencedTransactions)-1]
 		}
 	}
+	fmt.Println("Processed block #", lastBlock)
 }
 
 func performTransaction(t *SignedTransaction) {
