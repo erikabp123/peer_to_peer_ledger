@@ -36,6 +36,8 @@ var (
 	lastBlock               = -1
 	phase                   int
 	sequencer               bool
+	waitingForTransaction   int
+	informedDepleted        bool
 )
 
 type Block struct {
@@ -88,6 +90,7 @@ func (o *OrderedMap) Set(k string, v *account.PublicKey) {
 
 func main() {
 	phase = 1
+	waitingForTransaction = 0
 	initialize()
 }
 
@@ -157,7 +160,6 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	mutexUnsequenced.Lock()
 	mutexTransactions.Lock()
 	if t.T.Amount <= 0 || transactions[t.T.ID] || find(t.T.ID) != -1 {
-		fmt.Println("Did not create", t.T.ID)
 		mutexUnsequenced.Unlock()
 		mutexTransactions.Unlock()
 		return
@@ -172,7 +174,6 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 		return
 	}
 	validSignature := account.Verify(n, convertTransactionToBigInt(t.T), tracker.M[t.T.Authorizer])
-	fmt.Println("Validating signature:", validSignature)
 	if !validSignature {
 		mutexUnsequenced.Unlock()
 		return
@@ -183,7 +184,7 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	tcpMsg.Msg = "Transaction"
 	tcpMsg.SignedTransaction = t
 	tcpMsg.Peers = NewOrderedMap()
-	go forwardTransaction(tcpMsg)
+	forwardTransaction(tcpMsg)
 }
 
 /* End of exercise 6.13 */
@@ -254,7 +255,6 @@ func userInput() {
 			cmnd.Msg = "Test " + getMyIpAndPort()
 			for _, conn := range activePeers {
 				marshal(*cmnd, conn)
-				time.Sleep(2 * time.Millisecond)
 			}
 		}
 		if newMessage == "get ledger" {
@@ -335,26 +335,31 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 			fmt.Println("Phase 2")
 			phase = 2
 		}
-		go ledger.SignedTransaction(message.SignedTransaction)
+		ledger.SignedTransaction(message.SignedTransaction)
 		return
 	}
 	if message.Msg == "Signed Block" {
-		go processBlock(message.SignedBlock)
+		processBlock(message.SignedBlock)
 		return
 	}
 	if strings.Contains(message.Msg, "Test") {
-		fmt.Println("Performing test!")
 		str := strings.Split(message.Msg, " ")
 		ip := str[1]
-		giveMoney(ip, 500)
-		for i := 0; i < 500; i++ {
-			transaction := createTransaction(ip, getMyIpAndPort(), 1)
-			ledger.SignedTransaction(transaction)
-			time.Sleep(20 * time.Millisecond)
-		}
+		test(ip)
 		return
 	}
 	return
+}
+
+func test(ip string) {
+	fmt.Println("Performing test!")
+	giveMoney(ip, 500)
+	for i := 0; i < 500; i++ {
+		transaction := createTransaction(ip, getMyIpAndPort(), 1)
+		ledger.SignedTransaction(transaction)
+		time.Sleep(22 * time.Millisecond)
+	}
+	fmt.Println("Test completed. Wait for block.")
 }
 
 func convertBlockToInt(block *Block) *big.Int {
@@ -388,16 +393,30 @@ func processBlock(signedBlock *SignedBlock) {
 	lastBlock = block.BlockNumber
 
 	for _, id := range block.IDS {
-		mutexUnsequenced.Lock()
-		i := find(id)
-		if i != -1 {
-			go performTransaction(unsequencedTransactions[i])
-			unsequencedTransactions = append(unsequencedTransactions[:i], unsequencedTransactions[i+1:]...)
-		} else {
-			fmt.Println("Could not find transaction #" + id)
-		}
-		mutexUnsequenced.Unlock()
+		checkAndDelete(id)
 	}
+}
+
+func checkAndDelete(id string) {
+	mutexUnsequenced.Lock()
+	i := find(id)
+	if i != -1 {
+		performTransaction(unsequencedTransactions[i])
+		unsequencedTransactions = append(unsequencedTransactions[:i], unsequencedTransactions[i+1:]...)
+	} else {
+		time.Sleep(50 * time.Millisecond)
+		fmt.Println("Could not find transaction #" + id)
+		if waitingForTransaction > 20 {
+			fmt.Println("WARNING: Client did not receive transaction after 20 retries")
+		} else {
+			waitingForTransaction = waitingForTransaction + 1
+			mutexUnsequenced.Unlock()
+			checkAndDelete(id)
+			mutexUnsequenced.Lock()
+		}
+		waitingForTransaction = 0
+	}
+	mutexUnsequenced.Unlock()
 }
 
 func find(x string) int {
@@ -415,8 +434,12 @@ func giveMoney(account string, amount int) {
 
 func performTransaction(t *SignedTransaction) {
 	mutexTransactions.Lock()
-	fmt.Println("Transaction #" + t.T.ID + " " + t.T.From + " => " + t.T.To + " amount: " + strconv.Itoa(t.T.Amount))
+	//fmt.Println("Transaction #" + t.T.ID + " " + t.T.From + " => " + t.T.To + " amount: " + strconv.Itoa(t.T.Amount))
 	if ledger.Accounts[t.T.From] < t.T.Amount {
+		if !informedDepleted {
+			fmt.Println("Account depleted. Transaction:", t.T.ID)
+			informedDepleted = true
+		}
 		mutexTransactions.Unlock()
 		return
 	}
@@ -478,7 +501,6 @@ func connectToTrackerList() {
 			}
 		}
 	}
-	fmt.Println(activePeers)
 	mutexTracker.Unlock()
 }
 
@@ -539,8 +561,7 @@ func convertTransactionToBigInt(transaction *Transaction) *big.Int {
 
 func createTransaction(fromIP string, toIP string, amount int) *SignedTransaction {
 	signedTransaction := NewSignedTransaction()
-	rand.Seed(time.Now().UTC().UnixNano())
-	signedTransaction.T.ID = strconv.Itoa(rand.Int())
+	signedTransaction.T.ID = strconv.FormatInt(time.Now().UnixNano(), 10)
 	//signedTransaction.T.From = convertPublicKeyToJSON(tracker.M[fromIP])
 	//signedTransaction.T.To = convertPublicKeyToJSON(tracker.M[toIP])
 	signedTransaction.T.From = fromIP
@@ -561,7 +582,7 @@ func sendToPeers(message string) {
 	tcpMsg := new(TcpMessage)
 	tcpMsg.Msg = "Transaction"
 	tcpMsg.SignedTransaction = signedTransaction
-	ledger.SignedTransaction(signedTransaction)
+	go ledger.SignedTransaction(signedTransaction)
 }
 
 func forwardTransaction(tcpMsg *TcpMessage) {
