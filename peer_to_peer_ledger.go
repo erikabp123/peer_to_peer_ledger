@@ -155,8 +155,6 @@ type Transaction struct {
 }
 
 func (l *Ledger) SignedTransaction(t *SignedTransaction) {
-	l.lock.Lock()
-	defer l.lock.Unlock()
 	mutexUnsequenced.Lock()
 	mutexTransactions.Lock()
 	if t.T.Amount <= 0 || transactions[t.T.ID] || find(t.T.ID) != -1 {
@@ -358,7 +356,7 @@ func test(ip string) {
 	for i := 0; i < 500; i++ {
 		transaction := createTransaction(ip, getMyIpAndPort(), 1)
 		ledger.SignedTransaction(transaction)
-		time.Sleep(15 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 	}
 	fmt.Println("Test completed. Wait for block...")
 }
@@ -377,8 +375,6 @@ func convertBlockToInt(block *Block) *big.Int {
 
 func processBlock(signedBlock *SignedBlock) {
 	fmt.Println("Recieved block")
-	ledger.lock.Lock()
-	defer ledger.lock.Unlock()
 	blockAsInt := convertBlockToInt(signedBlock.B)
 	sequencerPK := tracker.M[tracker.Keys[0]]
 	verification := account.Verify(signedBlock.Signature, blockAsInt, sequencerPK)
@@ -396,7 +392,6 @@ func processBlock(signedBlock *SignedBlock) {
 	for _, id := range block.IDS {
 		checkAndDelete(id)
 	}
-	informedDepleted = false
 }
 
 func checkAndDelete(id string) {
@@ -407,9 +402,9 @@ func checkAndDelete(id string) {
 		unsequencedTransactions = append(unsequencedTransactions[:i], unsequencedTransactions[i+1:]...)
 	} else {
 		fmt.Println("Could not find transaction #" + id)
-		time.Sleep(50 * time.Millisecond)
-		if waitingForTransaction > 20 {
-			fmt.Println("WARNING: Client did not receive transaction after 20 retries")
+		time.Sleep(100 * time.Millisecond)
+		if waitingForTransaction > 10 {
+			fmt.Println("WARNING: Client did not receive transaction after 10 retries")
 			waitingForTransaction = 0
 		} else {
 			waitingForTransaction = waitingForTransaction + 1
@@ -435,20 +430,21 @@ func giveMoney(account string, amount int) {
 }
 
 func performTransaction(t *SignedTransaction) {
+	ledger.lock.Lock()
+	defer ledger.lock.Unlock()
 	mutexTransactions.Lock()
-	//fmt.Println("Transaction #" + t.T.ID + " " + t.T.From + " => " + t.T.To + " amount: " + strconv.Itoa(t.T.Amount))
+	defer mutexTransactions.Unlock()
 	if ledger.Accounts[t.T.From] < t.T.Amount {
 		if !informedDepleted {
 			fmt.Println("Account depleted. Transaction:", t.T.ID)
 			informedDepleted = true
 		}
-		mutexTransactions.Unlock()
 		return
 	}
+	//fmt.Println("Transaction #" + t.T.ID + " " + strconv.Itoa(ledger.Accounts[t.T.From]) + " => " + strconv.Itoa(ledger.Accounts[t.T.To]))
 	ledger.Accounts[t.T.From] -= t.T.Amount
 	ledger.Accounts[t.T.To] += t.T.Amount
 	transactions[t.T.ID] = true
-	mutexTransactions.Unlock()
 }
 
 func trackerContainsIp(ip string) bool {
@@ -563,7 +559,9 @@ func convertTransactionToBigInt(transaction *Transaction) *big.Int {
 
 func createTransaction(fromIP string, toIP string, amount int) *SignedTransaction {
 	signedTransaction := NewSignedTransaction()
-	signedTransaction.T.ID = strconv.FormatInt(time.Now().UnixNano(), 10)
+	s := time.Now().UnixNano()
+	rand.Seed(s)
+	signedTransaction.T.ID = strconv.FormatInt(s-1541376441136647000+rand.Int63n(999-1)+1, 10)
 	//signedTransaction.T.From = convertPublicKeyToJSON(tracker.M[fromIP])
 	//signedTransaction.T.To = convertPublicKeyToJSON(tracker.M[toIP])
 	signedTransaction.T.From = fromIP
