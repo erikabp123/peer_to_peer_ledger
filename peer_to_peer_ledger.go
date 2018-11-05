@@ -249,12 +249,13 @@ func userInput() {
 			sendToPeers(newMessage)
 		}
 		if newMessage == "test" {
-			fmt.Println("Performing test!")
+			fmt.Println("Performing test...")
 			giveMoney(getMyIpAndPort(), 500)
 			cmnd := new(TcpMessage)
 			cmnd.Msg = "Test " + getMyIpAndPort()
 			for _, conn := range activePeers {
 				marshal(*cmnd, conn)
+				time.Sleep(2 * time.Millisecond)
 			}
 		}
 		if newMessage == "get ledger" {
@@ -352,14 +353,14 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 }
 
 func test(ip string) {
-	fmt.Println("Performing test!")
+	fmt.Println("Performing test...")
 	giveMoney(ip, 500)
 	for i := 0; i < 500; i++ {
 		transaction := createTransaction(ip, getMyIpAndPort(), 1)
 		ledger.SignedTransaction(transaction)
-		time.Sleep(22 * time.Millisecond)
+		time.Sleep(15 * time.Millisecond)
 	}
-	fmt.Println("Test completed. Wait for block.")
+	fmt.Println("Test completed. Wait for block...")
 }
 
 func convertBlockToInt(block *Block) *big.Int {
@@ -395,6 +396,7 @@ func processBlock(signedBlock *SignedBlock) {
 	for _, id := range block.IDS {
 		checkAndDelete(id)
 	}
+	informedDepleted = false
 }
 
 func checkAndDelete(id string) {
@@ -404,17 +406,17 @@ func checkAndDelete(id string) {
 		performTransaction(unsequencedTransactions[i])
 		unsequencedTransactions = append(unsequencedTransactions[:i], unsequencedTransactions[i+1:]...)
 	} else {
-		time.Sleep(50 * time.Millisecond)
 		fmt.Println("Could not find transaction #" + id)
+		time.Sleep(50 * time.Millisecond)
 		if waitingForTransaction > 20 {
 			fmt.Println("WARNING: Client did not receive transaction after 20 retries")
+			waitingForTransaction = 0
 		} else {
 			waitingForTransaction = waitingForTransaction + 1
 			mutexUnsequenced.Unlock()
 			checkAndDelete(id)
 			mutexUnsequenced.Lock()
 		}
-		waitingForTransaction = 0
 	}
 	mutexUnsequenced.Unlock()
 }
