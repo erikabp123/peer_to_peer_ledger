@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/gob"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
@@ -527,23 +526,6 @@ func accept() {
 		fmt.Println("New peer")
 		connect(newPeer)
 	}
-}
-
-func convertPublicKeyToJSON(key *account.PublicKey) string {
-	output, err := json.Marshal(key)
-	if err != nil {
-		panic(err)
-	}
-	return string(output)
-}
-
-func convertJSONStringToPublicKey(key string) *account.PublicKey {
-	pk := &account.PublicKey{}
-	err := json.Unmarshal([]byte(key), pk)
-	if err != nil {
-		panic(err)
-	}
-	return pk
 }
 
 func convertTransactionToBigInt(transaction *Transaction) *big.Int {
