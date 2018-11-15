@@ -30,7 +30,16 @@ var (
 	transactions map[string]bool
 	myPublicKey  *account.PublicKey
 	mySecretKey  *account.SecretKey
+	blocks       []Block
 )
+
+type Block struct {
+	PublicKey *account.PublicKey
+	Slot      int
+	Draw      big.Int
+	Previous  big.Int
+	U         []SignedTransaction
+}
 
 type OrderedMap struct {
 	M    map[string]*account.PublicKey
@@ -57,11 +66,11 @@ func main() {
 	tracker = NewOrderedMap()
 	ledger = MakeLedger()
 	reader := bufio.NewReader(os.Stdin)
+	ledger.Accounts["0"] = 10000000
 	fmt.Printf("Connect to existing peer (E.g. 0.0.0.0:25556): ")
 	ip, _ := reader.ReadString('\n')
 	ip = strings.TrimSuffix(ip, "\n")
 	connectToExistingPeer(ip)
-	go userInput()
 	go accept()
 	for !stop {
 		time.Sleep(5000 * time.Millisecond) // keep alive
@@ -97,7 +106,7 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	if transactions[t.T.ID] {
 		return
 	}
-	fmt.Println("performing transaction #" + t.T.ID + "... " + t.T.From + " => " + t.T.To + "... Amount: " + strconv.Itoa(t.T.Amount))
+	fmt.Println("Transaction #" + t.T.ID + " " + t.T.From + " => " + t.T.To + " Amount: " + strconv.Itoa(t.T.Amount))
 
 	//check signature
 	n := new(big.Int)
@@ -106,11 +115,11 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 		fmt.Println("SetString: error")
 		return
 	}
-	validSignature := account.Verify(n, convertTransactionToBigInt(t.T), convertJSONStringToPublicKey(t.T.From))
+	/*validSignature := account.Verify(n, convertTransactionToBigInt(t.T), convertJSONStringToPublicKey(t.T.From))
 	fmt.Println("Validating signature...:", validSignature)
 	if !validSignature {
 		return
-	}
+	}*/
 	transactions[t.T.ID] = true
 	l.Accounts[t.T.From] -= t.T.Amount
 	l.Accounts[t.T.To] += t.T.Amount
@@ -127,6 +136,7 @@ type TcpMessage struct {
 	Msg               string
 	Peers             *OrderedMap
 	SignedTransaction *SignedTransaction
+	Blocks            []Block
 }
 
 type Ledger struct {
@@ -155,6 +165,102 @@ func connectToExistingPeer(ip string) {
 	if err != nil {
 		fmt.Println("Error connecting")
 		tracker.Set(getMyIpAndPort(), myPublicKey)
+		// Create genesis block
+		t1 := &SignedTransaction{
+			T: &Transaction{
+				ID:     "1",
+				From:   "0",
+				To:     "1",
+				Amount: 1000000,
+			},
+			Signature: "0",
+		}
+		t2 := &SignedTransaction{
+			T: &Transaction{
+				ID:     "2",
+				From:   "0",
+				To:     "2",
+				Amount: 1000000,
+			},
+			Signature: "0",
+		}
+		t3 := &SignedTransaction{
+			T: &Transaction{
+				ID:     "3",
+				From:   "0",
+				To:     "3",
+				Amount: 1000000,
+			},
+			Signature: "0",
+		}
+		t4 := &SignedTransaction{
+			T: &Transaction{
+				ID:     "4",
+				From:   "0",
+				To:     "4",
+				Amount: 1000000,
+			},
+			Signature: "0",
+		}
+		t5 := &SignedTransaction{
+			T: &Transaction{
+				ID:     "5",
+				From:   "0",
+				To:     "5",
+				Amount: 1000000,
+			},
+			Signature: "0",
+		}
+		t6 := &SignedTransaction{
+			T: &Transaction{
+				ID:     "6",
+				From:   "0",
+				To:     "6",
+				Amount: 1000000,
+			},
+			Signature: "0",
+		}
+		t7 := &SignedTransaction{
+			T: &Transaction{
+				ID:     "7",
+				From:   "0",
+				To:     "7",
+				Amount: 1000000,
+			},
+			Signature: "0",
+		}
+		t8 := &SignedTransaction{
+			T: &Transaction{
+				ID:     "8",
+				From:   "0",
+				To:     "8",
+				Amount: 1000000,
+			},
+			Signature: "0",
+		}
+		t9 := &SignedTransaction{
+			T: &Transaction{
+				ID:     "9",
+				From:   "0",
+				To:     "9",
+				Amount: 1000000,
+			},
+			Signature: "0",
+		}
+		t10 := &SignedTransaction{
+			T: &Transaction{
+				ID:     "10",
+				From:   "0",
+				To:     "10",
+				Amount: 1000000,
+			},
+			Signature: "0",
+		}
+		var t []SignedTransaction
+		t = []SignedTransaction{*t1, *t2, *t3, *t4, *t5, *t6, *t7, *t8, *t9, *t10}
+		genesisBlock := new(Block)
+		genesisBlock.U = t
+		processBlock(genesisBlock)
 	} else {
 		fmt.Println("Connected to: " + ip)
 		connect(conn)
@@ -162,6 +268,13 @@ func connectToExistingPeer(ip string) {
 		tcpMessage.Msg = "Tracker"
 		marshal(*tcpMessage, conn)
 	}
+}
+
+func processBlock(Block *Block) {
+	for _, t := range Block.U {
+		ledger.SignedTransaction(&t)
+	}
+	blocks = append(blocks, *Block)
 }
 
 func connect(conn net.Conn) {
@@ -173,13 +286,25 @@ func connect(conn net.Conn) {
 
 func userInput() {
 	reader := bufio.NewReader(os.Stdin)
+	fmt.Print("Pick your account number 1-10: ")
+	newMessage, _ := reader.ReadString('\n')
+	newMessage = strings.TrimSuffix(newMessage, "\n")
+	i, err := strconv.Atoi(newMessage)
+	if err != nil {
+		panic(err)
+	}
+	if i < 1 && i > 10 {
+		fmt.Println("no")
+		return
+	}
+	fmt.Println("nice")
 	for !stop {
 		newMessage, _ := reader.ReadString('\n')
 		newMessage = strings.TrimSuffix(newMessage, "\n")
 		if strings.HasPrefix(newMessage, "send ") {
 			sendToPeers(newMessage)
 		}
-		if newMessage == "getLedger" {
+		if newMessage == "get ledger" {
 			for key, value := range ledger.Accounts {
 				fmt.Println(key, value)
 			}
@@ -201,6 +326,8 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		mutexTracker.Lock()
 		reply := new(TcpMessage)
 		reply.Peers = tracker
+		reply.Msg = "Tracker List"
+		reply.Blocks = blocks
 		marshal(*reply, conn)
 		mutexTracker.Unlock()
 		return
@@ -212,7 +339,7 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		mutexTracker.Unlock()
 		return
 	}
-	if len(message.Peers.Keys) > 0 {
+	if message.Msg == "Tracker List" {
 		mutexTracker.Lock()
 		for _, ip := range message.Peers.Keys {
 			if !trackerContainsIp(ip) {
@@ -221,6 +348,9 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		}
 		if !trackerContainsIp(getMyIpAndPort()) {
 			tracker.Set(getMyIpAndPort(), myPublicKey)
+		}
+		for _, b := range message.Blocks {
+			processBlock(&b)
 		}
 		mutexTracker.Unlock()
 		reply := new(TcpMessage)
@@ -308,6 +438,7 @@ func accept() {
 		log.Fatal(err)
 		fmt.Println("Error listening to port " + port)
 	}
+	go userInput()
 	for !stop {
 		newPeer, err := ln.Accept()
 		if err != nil {
@@ -347,12 +478,12 @@ func convertTransactionToBigInt(transaction *Transaction) *big.Int {
 	return transactionInt
 }
 
-func createTransaction(toIP string, amount int) *SignedTransaction {
+func createTransaction(to string, amount int) *SignedTransaction {
 	signedTransaction := NewSignedTransaction()
 	rand.Seed(time.Now().UTC().UnixNano())
 	signedTransaction.T.ID = strconv.Itoa(rand.Int())
 	signedTransaction.T.From = convertPublicKeyToJSON(myPublicKey)
-	signedTransaction.T.To = convertPublicKeyToJSON(tracker.M[toIP])
+	signedTransaction.T.To = convertPublicKeyToJSON(tracker.M[to])
 	signedTransaction.T.Amount = amount
 	hash := account.Hash(convertTransactionToBigInt(signedTransaction.T))
 	signedTransaction.Signature = account.Sign(hash, mySecretKey).String()
