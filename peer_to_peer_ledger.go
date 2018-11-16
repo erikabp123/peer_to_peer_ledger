@@ -44,6 +44,7 @@ var (
 	winners                 []*Block
 	determiningWinner       = false
 	mutexDW                 sync.Mutex
+	mutexHardness           sync.Mutex
 )
 
 type Block struct {
@@ -607,29 +608,28 @@ func lottery(startTime int64) {
 	var previousSlot int64
 	previousSlot = 0
 	lastWinningSlot = 0
-	for !stop {
+	for !stop && previousSlot < 240 {
 		slot := calculateSlot()
 		if slot > previousSlot {
-			draw, result := drawAndCheck(slot)
-			if result {
-				adjustHardness(slot)
-				fmt.Println("Verified winner:", verifyWinner(draw, slot, myPublicKey))
-				wins++
-				lastWinningSlot = slot
-			} else if slot%10 == 0 {
+			drawAndCheck(slot)
+			mutexHardness.Lock()
+			if slot%10 == 0 && slot != lastWinningSlot {
 				adjustHardness(slot)
 			}
+			mutexHardness.Unlock()
 			previousSlot = slot
 		}
 
 	}
+	fmt.Println(wins, previousSlot)
 }
 
 func verifyWinner(draw *big.Int, slot int64, pkOfOwner *account.PublicKey) bool {
 	info := make([]*big.Int, 2)
 	info[0] = convertSlotToBigInt(slot)
 	info[1] = getSeed()
-	verified := account.VerifyNoHash(draw, convertBigIntSliceToBigInt(info), pkOfOwner)
+	drawClone := new(big.Int).Set(draw)
+	verified := account.VerifyNoHash(drawClone, convertBigIntSliceToBigInt(info), pkOfOwner)
 	verified = verified && compareValueOfDrawWithHardness(valueOfDraw(draw, pkOfOwner, slot)) == 1
 	return verified
 }
@@ -642,7 +642,7 @@ func drawAndCheck(slot int64) (*big.Int, bool) {
 		fmt.Println("Loss on draw!")
 		return draw, false
 	}
-	fmt.Println("Win on draw!") // TODO: Implement actual win behvaior
+	fmt.Println("Win on draw!")
 	broadcastWin(draw, slot)
 	return draw, true
 }
@@ -685,6 +685,11 @@ func determineWinner(received []*Block) {
 		mutexWinners.Unlock()
 		return
 	}
+	mutexHardness.Lock()
+	lastWinningSlot = winnerBlock.Slot
+	adjustHardness(winnerBlock.Slot)
+	wins++
+	mutexHardness.Unlock()
 	winners = append(winners, winnerBlock)
 	mutexWinners.Unlock()
 	mutexDW.Lock()
@@ -766,7 +771,7 @@ func adjustHardness(slot int64) {
 		//decrease hardness by 10%
 		fmt.Println("Reducing hardness!")
 		reduction := new(big.Int)
-		reduction.Div(hardness, new(big.Int).SetUint64(10))
+		reduction.Div(hardness, new(big.Int).SetUint64(5))
 		hardness = hardness.Sub(hardness, reduction)
 	} else if slot < lastWinningSlot+8 {
 		//increase hardness by 20%
