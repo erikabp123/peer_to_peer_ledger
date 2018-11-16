@@ -253,8 +253,10 @@ func connectToExistingPeer(ip string) {
 }
 
 func processBlock(Block *Block) {
-	for _, t := range Block.U.Transactions {
-		performTransaction(t)
+	if Block.U != nil && len(Block.U.Transactions) > 0 {
+		for _, t := range Block.U.Transactions {
+			performTransaction(t)
+		}
 	}
 	blocks = append(blocks, Block)
 	genesisBlockPerformed = true
@@ -656,10 +658,13 @@ func createBlock(draw *big.Int, slot int64) *Block {
 func broadcastWin(draw *big.Int, slot int64) {
 	message := new(TcpMessage)
 	message.Msg = "Winner"
-	newBlocks := make([]*Block, len(blocks)+1)
-	copy(newBlocks, blocks)
+	var newBlocks []*Block
+	for _, v := range blocks {
+		newBlocks = append(newBlocks, v)
+	}
 	newBlocks = append(newBlocks, createBlock(draw, slot))
 	message.Blocks = newBlocks
+	message.AccountHolders = accountHolders
 	go determineWinner(newBlocks)
 	forwardTransaction(message)
 }
@@ -668,7 +673,11 @@ func determineWinner(received []*Block) {
 	mutexWinners.Lock()
 	winnerBlock := received[len(received)-1]
 	verified := verifyWinner(winnerBlock.Draw, winnerBlock.Slot, winnerBlock.PublicKey)
-	if !verified || !compareBlockLists(received) {
+	if !compareBlockLists(received) {
+		fmt.Println("My list:", blocks, "Received:", received)
+		return
+	}
+	if !verified {
 		fmt.Println("Winner block invalid!")
 		mutexWinners.Unlock()
 		return
