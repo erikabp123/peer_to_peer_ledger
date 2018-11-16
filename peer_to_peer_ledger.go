@@ -286,18 +286,20 @@ func connect(conn net.Conn) {
 
 func userInput() {
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Print("Pick your account number 1-10: ")
-	newMessage, _ := reader.ReadString('\n')
-	newMessage = strings.TrimSuffix(newMessage, "\n")
-	i, err := strconv.Atoi(newMessage)
-	if err != nil {
-		panic(err)
+	check := false
+	for !check {
+		fmt.Print("Pick your account number 1-10: ")
+		newMessage, _ := reader.ReadString('\n')
+		newMessage = strings.TrimSuffix(newMessage, "\n")
+		i, err := strconv.Atoi(newMessage)
+		if err != nil {
+			fmt.Println("Could not convert")
+		} else if i < 1 || i > 10 {
+			fmt.Println("Must be between 1-10")
+		} else {
+			check = true
+		}
 	}
-	if i < 1 && i > 10 {
-		fmt.Println("no")
-		return
-	}
-	fmt.Println("nice")
 	for !stop {
 		newMessage, _ := reader.ReadString('\n')
 		newMessage = strings.TrimSuffix(newMessage, "\n")
