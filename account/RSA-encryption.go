@@ -120,11 +120,17 @@ func Verify(sig big.Int, msg *big.Int, pk *PublicKey) bool {
 }
 
 func VerifyNoHash(sig *big.Int, msg *big.Int, pk *PublicKey) bool {
-	originalMsg := Encrypt(sig, pk)
+	originalMsg := EncryptNoHash(sig, pk)
 	if originalMsg.Cmp(msg) == 0 {
 		return true
 	}
 	return false
+}
+
+func EncryptNoHash(msg *big.Int, key *PublicKey) *big.Int {
+	val := msg
+	c := val.Exp(val, key.E, key.N)
+	return c
 }
 
 func Sign(hash *big.Int, key *SecretKey) *big.Int {

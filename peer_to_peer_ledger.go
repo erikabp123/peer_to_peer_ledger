@@ -33,11 +33,9 @@ var (
 	mySecretKey         *account.SecretKey
 	blocks              []Block
 	accountHolders      [10]string
-	lotteryStartTime int64
-	lastWinningSlot  int64
-	hardness         *big.Int
-	seed             *big.Int
-	wins             int64
+	lotteryStartTime    int64
+	lastWinningSlot     int64
+	wins                int64
 )
 
 type Block struct {
@@ -539,10 +537,6 @@ func GetOutboundIP() net.IP { // https://stackoverflow.com/questions/23558425/ho
 */
 
 func lottery(startTime int64) {
-	hardn, sed := account.KeyGen(256)
-	hardness = hardn.N
-	seed = sed.D
-
 	lotteryStartTime = startTime
 	var previousSlot int64
 	previousSlot = 0
@@ -619,6 +613,7 @@ func compareValueOfDrawWithHardness(valueOfDraw *big.Int) int {
 
 func adjustHardness(slot int64) {
 	idealTopRange := lastWinningSlot + 10
+	hardness := getHardness()
 	if slot > idealTopRange {
 		//decrease hardness by 10%
 		fmt.Println("Reducing hardness!")
@@ -635,11 +630,11 @@ func adjustHardness(slot int64) {
 }
 
 func getHardness() *big.Int {
-	return hardness
+	return blocks[0].U.Hardness
 }
 
 func getSeed() *big.Int {
-	return seed
+	return blocks[0].U.Seed
 	//return blocks[0].U.Seed
 }
 
