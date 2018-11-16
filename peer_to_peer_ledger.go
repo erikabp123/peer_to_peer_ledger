@@ -207,7 +207,7 @@ func connectToExistingPeer(ip string) {
 		genesisBlock := new(Block)
 		blockData := new(BlockData)
 		blockData.Transactions = t
-		hardness, seed := account.KeyGen(256)
+		hardness, seed := account.KeyGen(277)
 		blockData.Seed = seed.D
 		blockData.Hardness = hardness.N
 		genesisBlock.U = blockData
