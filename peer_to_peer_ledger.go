@@ -19,18 +19,19 @@ import (
 )
 
 var (
-	stop         = false
-	mutexPeers   sync.Mutex
-	mutexTracker sync.Mutex
-	activePeers  []net.Conn
-	mutexLedger  sync.Mutex
-	tracker      *OrderedMap
-	ledger       *Ledger
-	port         string
-	transactions map[string]bool
-	myPublicKey  *account.PublicKey
-	mySecretKey  *account.SecretKey
-	blocks       []Block
+	stop             = false
+	mutexPeers       sync.Mutex
+	mutexTracker     sync.Mutex
+	activePeers      []net.Conn
+	mutexLedger      sync.Mutex
+	tracker          *OrderedMap
+	ledger           *Ledger
+	port             string
+	transactions     map[string]bool
+	myPublicKey      *account.PublicKey
+	mySecretKey      *account.SecretKey
+	blocks           []Block
+	lotteryStartTime int64
 )
 
 type Block struct {
@@ -526,4 +527,34 @@ func GetOutboundIP() net.IP { // https://stackoverflow.com/questions/23558425/ho
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 
 	return localAddr.IP
+}
+
+/*
+	LOTTERY SYSTEM
+*/
+
+func convertBigIntSliceToBigInt(slice []*big.Int) *big.Int {
+	var b bytes.Buffer
+	e := gob.NewEncoder(&b)
+	if err := e.Encode(slice); err != nil {
+		panic(err)
+	}
+	sliceAsInt := new(big.Int)
+	sliceAsInt.SetBytes(b.Bytes())
+	return sliceAsInt
+}
+
+func calculateSlot() int64 {
+	now := time.Now().UnixNano()
+	slotNumber := (now - lotteryStartTime) / 1000000000
+	return slotNumber
+}
+
+func draw(slot int64) *big.Int {
+	var info []*big.Int
+	slotAsBigInt := new(big.Int)
+	slotAsBigInt.SetInt64(slot)
+	info[0] = slotAsBigInt
+	sig := account.Sign(convertBigIntSliceToBigInt(info), mySecretKey)
+	return sig
 }
