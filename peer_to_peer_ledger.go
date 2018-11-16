@@ -235,7 +235,7 @@ func connectToExistingPeer(ip string) {
 		genesisBlock := new(Block)
 		blockData := new(BlockData)
 		blockData.Transactions = t
-		hardness, seed := account.KeyGen(277)
+		hardness, seed := account.KeyGen(276) //Change back to 277
 		blockData.Seed = seed.D
 		blockData.Hardness = hardness.N
 		genesisBlock.U = blockData
@@ -337,7 +337,7 @@ func listen(conn net.Conn) {
 		dec := gob.NewDecoder(conn)
 		p := &TcpMessage{}
 		dec.Decode(p)
-		checkMessage(*p, conn)
+		go checkMessage(*p, conn)
 	}
 }
 
@@ -398,7 +398,7 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		return
 	}
 	if message.Msg == "Transaction" {
-		go ledger.SignedTransaction(message.SignedTransaction)
+		ledger.SignedTransaction(message.SignedTransaction)
 	}
 	if message.Msg == "Claim" {
 		mutexAccountHolders.Lock()
@@ -420,10 +420,10 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		return
 	}
 	if message.Msg == "Start" && !lotteryStarted {
-		go lottery(message.StartTime)
+		lottery(message.StartTime)
 	}
 	if message.Msg == "Winner" {
-		go determineWinner(message.Blocks)
+		determineWinner(message.Blocks)
 	}
 }
 
@@ -632,7 +632,7 @@ func lottery(startTime int64) {
 }
 
 func verifyWinner(draw *big.Int, slot int64, pkOfOwner *account.PublicKey) bool {
-	fmt.Println(draw)
+	//fmt.Println(draw)
 	info := make([]*big.Int, 2)
 	info[0] = convertSlotToBigInt(slot)
 	info[1] = getSeed()
@@ -677,8 +677,8 @@ func broadcastWin(draw *big.Int, slot int64) {
 	}
 	mutexBlocks.Unlock()
 	newBlocks = append(newBlocks, createBlock(draw, slot))
-	fmt.Println("blocks length:", len(blocks))
-	fmt.Println("newBlocks length:", len(newBlocks))
+	//fmt.Println("blocks length:", len(blocks))
+	//fmt.Println("newBlocks length:", len(newBlocks))
 	message.Blocks = newBlocks
 	message.AccountHolders = accountHolders
 	go determineWinner(newBlocks)
@@ -691,10 +691,11 @@ func determineWinner(received []*Block) {
 	verified := verifyWinner(winnerBlock.Draw, winnerBlock.Slot, winnerBlock.PublicKey)
 	if !compareBlockLists(received) {
 		fmt.Println("Did not agree on list with winner")
+		mutexWinners.Unlock()
 		return
 	}
 	if !verified {
-		fmt.Println("Winner block invalid!")
+		fmt.Println("Winner block not verified!")
 		mutexWinners.Unlock()
 		return
 	}
@@ -706,21 +707,25 @@ func determineWinner(received []*Block) {
 	winners = append(winners, winnerBlock)
 	mutexWinners.Unlock()
 	mutexDW.Lock()
+	fmt.Println("Attempting to determine winner!")
 	if determiningWinner {
+		fmt.Println("Already determining winner!")
 		return
 	}
 	determiningWinner = true
 	mutexDW.Unlock()
-	time.Sleep(1 * time.Second)
+	time.Sleep(700)
 	winner := compareWinners()
 	fmt.Println("Winner was:", winner)
 	processBlock(winner)
 	mutexWinners.Lock()
 	winners = []*Block{}
+	fmt.Println(winners)
 	mutexWinners.Unlock()
 	mutexDW.Lock()
 	determiningWinner = false
 	mutexDW.Unlock()
+	fmt.Println("Ending determinewinner", mutexHardness, mutexDW, mutexWinners)
 }
 
 func findBestWinner(curWinner *Block, v *Block) *Block {
@@ -742,12 +747,18 @@ func compareWinners() *Block {
 	mutexWinners.Lock()
 	defer mutexWinners.Unlock()
 	var curWinner *Block
-	for _, v := range winners {
-		if curWinner == nil {
-			curWinner = v
-			continue
+	curWinner = winners[0]
+	for i := 0; i < len(winners); i++ {
+		cmp := winners[i].Draw.Cmp(curWinner.Draw)
+		fmt.Println(cmp)
+		if cmp == 1 {
+			curWinner = winners[i]
+		} else if cmp == 0 {
+			cmp2 := winners[i].PublicKey.N.Cmp(curWinner.PublicKey.N)
+			if cmp2 == 1 {
+				curWinner = winners[i]
+			}
 		}
-		curWinner = findBestWinner(curWinner, v)
 	}
 	return curWinner
 }
