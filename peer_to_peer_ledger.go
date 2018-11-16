@@ -442,10 +442,13 @@ func activePeersContainsIp(ip string) bool {
 
 func compareBlockLists(received []*Block) bool {
 	if len(received) < len(blocks) || len(received) != len(blocks)+1 {
+		fmt.Println("Length check failed")
 		return false
 	}
 	for i := 0; i < len(blocks); i++ {
-		if received[i].PublicKey != blocks[i].PublicKey || received[i].Slot != blocks[i].Slot {
+		if received[i].PublicKey.N.Cmp(blocks[i].PublicKey.N) != 0 || received[i].Slot != blocks[i].Slot {
+			fmt.Println("Comparing:", received[i].PublicKey, "\nWith:", blocks[i].PublicKey)
+			fmt.Println("Comparing:", received[i].Slot, "\nWith:", blocks[i].Slot)
 			return false
 		}
 	}
@@ -675,7 +678,6 @@ func determineWinner(received []*Block) {
 	winnerBlock := received[len(received)-1]
 	verified := verifyWinner(winnerBlock.Draw, winnerBlock.Slot, winnerBlock.PublicKey)
 	if !compareBlockLists(received) {
-		fmt.Println("My list:", blocks, "Received:", received)
 		return
 	}
 	if !verified {
