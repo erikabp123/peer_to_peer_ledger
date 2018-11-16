@@ -595,8 +595,9 @@ func draw(slot int64) *big.Int {
 }
 
 func valueOfDraw(draw *big.Int, pkOfDraw *account.PublicKey, slot int64) *big.Int {
-	tickets := new(big.Int)
-	tickets.SetUint64(1) // TODO: Update to use the tickets associated with the pk of the draw
+	//tickets := new(big.Int)
+	//tickets.SetUint64(1) // TODO: Update to use the tickets associated with the pk of the draw
+	tickets := big.NewInt(int64(findAccountOfPk(pkOfDraw)))
 	toBeHashed := make([]*big.Int, 4)
 	toBeHashed[0] = getSeed()
 	toBeHashed[1] = convertSlotToBigInt(slot)
@@ -627,6 +628,16 @@ func adjustHardness(slot int64) {
 		increase.Div(hardness, new(big.Int).SetUint64(10))
 		hardness = hardness.Add(hardness, increase)
 	}
+}
+
+func findAccountOfPk(pk *account.PublicKey) int {
+	for k, v := range accountHolders {
+		if v == convertPublicKeyToJSON(pk) {
+			return ledger.Accounts[strconv.Itoa(k)]
+		}
+	}
+	fmt.Println("Account for specified Public Key not found!")
+	return 0
 }
 
 func getHardness() *big.Int {
