@@ -37,7 +37,6 @@ var (
 	sequencer               bool
 	waitingForTransaction   int
 	informedDepleted        bool
-	lotteryStartTime        int64
 )
 
 type Block struct {
@@ -119,7 +118,6 @@ func createBlocks() {
 		return
 	}
 	for !stop {
-		time.Sleep(10000 * time.Millisecond)
 		signedBlock := signBlock(createBlock())
 		reply := new(TcpMessage)
 		reply.Msg = "Signed Block"
@@ -130,6 +128,7 @@ func createBlocks() {
 		}
 		mutexPeers.Unlock()
 		fmt.Println("Sending block")
+		time.Sleep(10000 * time.Millisecond)
 	}
 }
 
@@ -245,7 +244,6 @@ func userInput() {
 		newMessage = strings.TrimSuffix(newMessage, "\n")
 		if strings.HasPrefix(newMessage, "send ") {
 			sendToPeers(newMessage)
-			return
 		}
 		if newMessage == "test" {
 			fmt.Println("Performing test...")
@@ -254,15 +252,13 @@ func userInput() {
 			cmnd.Msg = "Test " + getMyIpAndPort()
 			for _, conn := range activePeers {
 				marshal(*cmnd, conn)
-				time.Sleep(3 * time.Millisecond)
+				time.Sleep(2 * time.Millisecond)
 			}
-			return
 		}
 		if newMessage == "get ledger" {
 			for key, value := range ledger.Accounts {
 				fmt.Println(key, value)
 			}
-			return
 		}
 	}
 }
@@ -444,7 +440,7 @@ func performTransaction(t *SignedTransaction) {
 		}
 		return
 	}
-	fmt.Println("Transaction #"+t.T.ID, t.T.From+"/"+strconv.Itoa(ledger.Accounts[t.T.From])+" => "+t.T.To+"/"+strconv.Itoa(ledger.Accounts[t.T.To]))
+	//fmt.Println("Transaction #" + t.T.ID + " " + strconv.Itoa(ledger.Accounts[t.T.From]) + " => " + strconv.Itoa(ledger.Accounts[t.T.To]))
 	ledger.Accounts[t.T.From] -= t.T.Amount
 	ledger.Accounts[t.T.To] += t.T.Amount
 	transactions[t.T.ID] = true
@@ -594,18 +590,4 @@ func GetOutboundIP() net.IP { // https://stackoverflow.com/questions/23558425/ho
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 
 	return localAddr.IP
-}
-
-/*
-LOTTERY FUNCTIONALITY
-*/
-
-func calculateSlot() int64 {
-	now := time.Now().UnixNano()
-	slotNumber := (now - lotteryStartTime) / 1000000000
-	return slotNumber
-}
-
-func draw() {
-
 }
