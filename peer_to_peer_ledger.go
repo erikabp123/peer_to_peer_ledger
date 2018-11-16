@@ -431,6 +431,18 @@ func activePeersContainsIp(ip string) bool {
 	return false
 }
 
+func compareBlockLists(received []Block) bool {
+	if len(received) < len(blocks) || len(received) != len(blocks)+1 {
+		return false
+	}
+	for i := 0; i < len(blocks); i++ {
+		if received[i].PublicKey != blocks[i].PublicKey || received[i].Slot != blocks[i].Slot {
+			return false
+		}
+	}
+	return true
+}
+
 func connectToTrackerList() {
 	mutexTracker.Lock()
 	var amountTilWrap int
@@ -531,7 +543,7 @@ func createTransaction(to string, amount int) *SignedTransaction {
 	signedTransaction.T.ID = strconv.FormatInt(s-1541376441136647000+rand.Int63n(999-1)+1, 10)
 	signedTransaction.T.From = myAccount
 	signedTransaction.T.To = to
-	signedTransaction.T.Amount = amount
+	signedTransaction.T.Amount = amount - 1
 	hash := account.Hash(convertTransactionToBigInt(signedTransaction.T))
 	signedTransaction.Signature = account.Sign(hash, mySecretKey).String()
 	return signedTransaction
