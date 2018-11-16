@@ -37,6 +37,7 @@ var (
 	sequencer               bool
 	waitingForTransaction   int
 	informedDepleted        bool
+	lotteryStartTime        int64
 )
 
 type Block struct {
@@ -593,4 +594,18 @@ func GetOutboundIP() net.IP { // https://stackoverflow.com/questions/23558425/ho
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 
 	return localAddr.IP
+}
+
+/*
+LOTTERY FUNCTIONALITY
+*/
+
+func calculateSlot() int64 {
+	now := time.Now().UnixNano()
+	slotNumber := (now - lotteryStartTime) / 1000000000
+	return slotNumber
+}
+
+func draw() {
+
 }
