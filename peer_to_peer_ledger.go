@@ -39,7 +39,13 @@ type Block struct {
 	Slot      int
 	Draw      big.Int
 	Previous  big.Int
-	U         []SignedTransaction
+	U         *BlockData
+}
+
+type BlockData struct {
+	Transactions []SignedTransaction
+	Seed         *big.Int
+	Hardness     *big.Int
 }
 
 type OrderedMap struct {
@@ -74,7 +80,7 @@ func main() {
 	connectToExistingPeer(ip)
 	go accept()
 	for !stop {
-		time.Sleep(5000 * time.Millisecond) // keep alive
+		time.Sleep(1000 * time.Millisecond) // keep alive
 	}
 }
 
@@ -116,11 +122,11 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 		fmt.Println("SetString: error")
 		return
 	}
-	/*validSignature := account.Verify(n, convertTransactionToBigInt(t.T), convertJSONStringToPublicKey(t.T.From))
-	fmt.Println("Validating signature...:", validSignature)
+	validSignature := account.Verify(n, convertTransactionToBigInt(t.T), convertJSONStringToPublicKey(t.T.From))
+	fmt.Println("Validating signature:", validSignature)
 	if !validSignature {
 		return
-	}*/
+	}
 	transactions[t.T.ID] = true
 	l.Accounts[t.T.From] -= t.T.Amount
 	l.Accounts[t.T.To] += t.T.Amount
@@ -260,7 +266,13 @@ func connectToExistingPeer(ip string) {
 		var t []SignedTransaction
 		t = []SignedTransaction{*t1, *t2, *t3, *t4, *t5, *t6, *t7, *t8, *t9, *t10}
 		genesisBlock := new(Block)
-		genesisBlock.U = t
+		blockData := new(BlockData)
+		blockData.Transactions = t
+		hardness, seed := account.KeyGen(256)
+		blockData.Seed = seed.D
+		blockData.Hardness = hardness.N
+		genesisBlock.U = blockData
+		fmt.Println("Seed:", seed.D, "\nHardness:", hardness.N)
 		processBlock(genesisBlock)
 	} else {
 		fmt.Println("Connected to: " + ip)
@@ -272,7 +284,7 @@ func connectToExistingPeer(ip string) {
 }
 
 func processBlock(Block *Block) {
-	for _, t := range Block.U {
+	for _, t := range Block.U.Transactions {
 		ledger.SignedTransaction(&t)
 	}
 	blocks = append(blocks, *Block)
@@ -294,23 +306,28 @@ func userInput() {
 		newMessage = strings.TrimSuffix(newMessage, "\n")
 		i, err := strconv.Atoi(newMessage)
 		if err != nil {
-			fmt.Println("Could not convert")
+			fmt.Println("Could not convert", newMessage)
 		} else if i < 1 || i > 10 {
 			fmt.Println("Must be between 1-10")
 		} else {
 			check = true
 		}
 	}
+	fmt.Println("Available commands:\nsend *accountnumber* *value* (Creates and broadcasts a transaction)\nget ledger (Returns the current ledger)\nexit (Terminates)")
 	for !stop {
 		newMessage, _ := reader.ReadString('\n')
 		newMessage = strings.TrimSuffix(newMessage, "\n")
 		if strings.HasPrefix(newMessage, "send ") {
 			sendToPeers(newMessage)
-		}
-		if newMessage == "get ledger" {
+		} else if newMessage == "get ledger" {
 			for key, value := range ledger.Accounts {
 				fmt.Println(key, value)
 			}
+		} else if newMessage == "exit" {
+			fmt.Println("Exiting")
+			stop = true
+		} else {
+			fmt.Println("Could not understand", newMessage)
 		}
 	}
 }
@@ -483,8 +500,9 @@ func convertTransactionToBigInt(transaction *Transaction) *big.Int {
 
 func createTransaction(to string, amount int) *SignedTransaction {
 	signedTransaction := NewSignedTransaction()
-	rand.Seed(time.Now().UTC().UnixNano())
-	signedTransaction.T.ID = strconv.Itoa(rand.Int())
+	s := time.Now().UnixNano()
+	rand.Seed(s)
+	signedTransaction.T.ID = strconv.FormatInt(s-1541376441136647000+rand.Int63n(999-1)+1, 10)
 	signedTransaction.T.From = convertPublicKeyToJSON(myPublicKey)
 	signedTransaction.T.To = convertPublicKeyToJSON(tracker.M[to])
 	signedTransaction.T.Amount = amount
