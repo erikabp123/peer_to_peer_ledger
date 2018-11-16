@@ -115,7 +115,7 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	if transactions[t.T.ID] {
 		return
 	}
-	fmt.Println("Transaction #" + t.T.ID + " " + t.T.From + " => " + t.T.To + " Amount: " + strconv.Itoa(t.T.Amount))
+	//fmt.Println("Transaction #" + t.T.ID + " " + t.T.From + " => " + t.T.To + " Amount: " + strconv.Itoa(t.T.Amount))
 
 	//check signature
 	n := new(big.Int)
@@ -126,10 +126,10 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	}
 	a, _ := strconv.Atoi(t.T.From)
 	mutexAccountHolders.Lock()
-	fmt.Println("Compare:", account.Encrypt(*n, convertJSONStringToPublicKey(accountHolders[a])), "\nWith:", account.Hash(convertTransactionToBigInt(t.T)))
+	//fmt.Println("Compare:", account.Encrypt(*n, convertJSONStringToPublicKey(accountHolders[a])), "\nWith:", account.Hash(convertTransactionToBigInt(t.T)))
 	validSignature := account.Verify(*n, convertTransactionToBigInt(t.T), convertJSONStringToPublicKey(accountHolders[a]))
 	mutexAccountHolders.Unlock()
-	fmt.Println("Validating signature:", validSignature)
+	//fmt.Println("Validating signature:", validSignature)
 	if !validSignature {
 		return
 	}
@@ -259,7 +259,7 @@ func userInput() {
 			check = true
 		}
 	}
-	fmt.Println("Available commands:\nsend *accountnumber* *value* (Creates and broadcasts a transaction)\nget ledger (Returns the current ledger)\nexit (Terminates)")
+	fmt.Println("Available commands:\nsend *accountnumber* *value* (Creates and broadcasts a transaction)\nget ledger (Returns the current ledger)\nexit (Terminates)\n---------------------------------------")
 	for !stop {
 		newMessage, _ := reader.ReadString('\n')
 		newMessage = strings.TrimSuffix(newMessage, "\n")
@@ -309,6 +309,12 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		mutexTracker.Lock()
 		ip := message.Peers.Keys[0]
 		tracker.Set(ip, message.Peers.M[ip])
+		forward := new(TcpMessage)
+		forward.Msg = "Forward"
+		forward.Peers = tracker
+		for _, conn := range activePeers {
+			marshal(*forward, conn)
+		}
 		mutexTracker.Unlock()
 		return
 	}
@@ -344,6 +350,20 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		mutexAccountHolders.Lock()
 		accountHolders = message.AccountHolders
 		mutexAccountHolders.Unlock()
+	}
+	if message.Msg == "Forward" {
+		if len(tracker.Keys) < len(message.Peers.Keys) {
+			fmt.Println("Updating tracker list")
+			mutexTracker.Lock()
+			for _, p := range message.Peers.Keys {
+				if !trackerContainsIp(p) {
+					tracker.Set(p, message.Peers.M[p])
+					connectToExistingPeer(p)
+				}
+			}
+			mutexTracker.Unlock()
+		}
+		return
 	}
 }
 
@@ -413,7 +433,7 @@ func getMyIpAndPort() string {
 func accept() {
 	fmt.Println("Now listening on " + getMyIpAndPort())
 	ln, err := net.Listen("tcp", ":"+port)
-	connectToTrackerList()
+	//connectToTrackerList() Doesn't work anyway
 	if err != nil {
 		log.Fatal(err)
 		fmt.Println("Error listening to port " + port)
