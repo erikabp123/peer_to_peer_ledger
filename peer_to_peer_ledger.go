@@ -37,12 +37,13 @@ var (
 	lastWinningSlot     int64
 	wins                int64
 	lotteryStarted      bool
+	pendingBlocks		[]Block
 )
 
 type Block struct {
 	PublicKey *account.PublicKey
-	Slot      int
-	Draw      big.Int
+	Slot      int64
+	Draw      *big.Int
 	Previous  big.Int
 	U         *BlockData
 }
@@ -381,6 +382,7 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 	if message.Msg == "Start" && !lotteryStarted {
 		go lottery(message.StartTime)
 	}
+	if message
 }
 
 func trackerContainsIp(ip string) bool {
@@ -590,7 +592,27 @@ func drawAndCheck(slot int64) (*big.Int, bool) {
 		return draw, false
 	}
 	fmt.Println("Win on draw!") // TODO: Implement actual win behvaior
+	broadcastWin(draw, slot);
 	return draw, true
+}
+
+func createBlock(draw *big.Int, slot int64) Block {
+	block := new(Block)
+	block.PublicKey = myPublicKey
+	block.Draw = draw
+	block.Slot = slot
+	blockData := new(BlockData)
+	blockData.Hardness = getHardness()
+	blockData.Seed = getSeed()
+	return block
+}
+
+func broadcastWin(draw *big.Int, slot int64){
+	message := new(TcpMessage)
+	message.Msg = "Winner"
+	blocks = append(blocks, createBlock(draw, slot))
+	message.Blocks = blocks
+
 }
 
 func calculateSlot() int64 {
