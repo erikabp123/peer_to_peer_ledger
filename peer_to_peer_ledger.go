@@ -67,7 +67,7 @@ func (o *OrderedMap) Set(k string, v *account.PublicKey) {
 }
 
 func main() {
-	myPublicKey, mySecretKey = account.KeyGen(256)
+	myPublicKey, mySecretKey = account.KeyGen(512)
 	transactions = make(map[string]bool)
 	port = randomPort()
 	activePeers = []net.Conn{}
@@ -126,7 +126,8 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	}
 	a, _ := strconv.Atoi(t.T.From)
 	mutexAccountHolders.Lock()
-	validSignature := account.Verify(n, convertTransactionToBigInt(t.T), convertJSONStringToPublicKey(accountHolders[a]))
+	fmt.Println("Compare:", account.Encrypt(*n, convertJSONStringToPublicKey(accountHolders[a])), "\nWith:", account.Hash(convertTransactionToBigInt(t.T)))
+	validSignature := account.Verify(*n, convertTransactionToBigInt(t.T), convertJSONStringToPublicKey(accountHolders[a]))
 	mutexAccountHolders.Unlock()
 	fmt.Println("Validating signature:", validSignature)
 	if !validSignature {
@@ -179,109 +180,25 @@ func connectToExistingPeer(ip string) {
 		fmt.Println("Error connecting")
 		tracker.Set(getMyIpAndPort(), myPublicKey)
 		// Create genesis block
-		t1 := &SignedTransaction{
-			T: &Transaction{
-				ID:     "1",
-				From:   "0",
-				To:     "1",
-				Amount: 1000000,
-			},
-			Signature: "0",
+		t := make([]SignedTransaction, 10)
+		hardness, seed := account.KeyGen(512)
+		mutexAccountHolders.Lock()
+		accountHolders[0] = convertPublicKeyToJSON(hardness)
+		mutexAccountHolders.Unlock()
+		for i := 0; i < 10; i++ {
+			n := strconv.Itoa(i + 1)
+			ti := &SignedTransaction{
+				T: &Transaction{
+					ID:     n,
+					From:   "0",
+					To:     n,
+					Amount: 1000000,
+				},
+				Signature: "0",
+			}
+			ti.Signature = account.Sign(account.Hash(convertTransactionToBigInt(ti.T)), seed).String()
+			t[i] = *ti
 		}
-		t2 := &SignedTransaction{
-			T: &Transaction{
-				ID:     "2",
-				From:   "0",
-				To:     "2",
-				Amount: 1000000,
-			},
-			Signature: "0",
-		}
-		t3 := &SignedTransaction{
-			T: &Transaction{
-				ID:     "3",
-				From:   "0",
-				To:     "3",
-				Amount: 1000000,
-			},
-			Signature: "0",
-		}
-		t4 := &SignedTransaction{
-			T: &Transaction{
-				ID:     "4",
-				From:   "0",
-				To:     "4",
-				Amount: 1000000,
-			},
-			Signature: "0",
-		}
-		t5 := &SignedTransaction{
-			T: &Transaction{
-				ID:     "5",
-				From:   "0",
-				To:     "5",
-				Amount: 1000000,
-			},
-			Signature: "0",
-		}
-		t6 := &SignedTransaction{
-			T: &Transaction{
-				ID:     "6",
-				From:   "0",
-				To:     "6",
-				Amount: 1000000,
-			},
-			Signature: "0",
-		}
-		t7 := &SignedTransaction{
-			T: &Transaction{
-				ID:     "7",
-				From:   "0",
-				To:     "7",
-				Amount: 1000000,
-			},
-			Signature: "0",
-		}
-		t8 := &SignedTransaction{
-			T: &Transaction{
-				ID:     "8",
-				From:   "0",
-				To:     "8",
-				Amount: 1000000,
-			},
-			Signature: "0",
-		}
-		t9 := &SignedTransaction{
-			T: &Transaction{
-				ID:     "9",
-				From:   "0",
-				To:     "9",
-				Amount: 1000000,
-			},
-			Signature: "0",
-		}
-		t10 := &SignedTransaction{
-			T: &Transaction{
-				ID:     "10",
-				From:   "0",
-				To:     "10",
-				Amount: 1000000,
-			},
-			Signature: "0",
-		}
-		var t []SignedTransaction
-		hardness, seed := account.KeyGen(256)
-		t1.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t1.T)), seed).String()
-		t2.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t2.T)), seed).String()
-		t3.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t3.T)), seed).String()
-		t4.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t4.T)), seed).String()
-		t5.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t5.T)), seed).String()
-		t6.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t6.T)), seed).String()
-		t7.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t7.T)), seed).String()
-		t8.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t8.T)), seed).String()
-		t9.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t9.T)), seed).String()
-		t10.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t10.T)), seed).String()
-		t = []SignedTransaction{*t1, *t2, *t3, *t4, *t5, *t6, *t7, *t8, *t9, *t10}
 		genesisBlock := new(Block)
 		blockData := new(BlockData)
 		blockData.Transactions = t
@@ -289,9 +206,6 @@ func connectToExistingPeer(ip string) {
 		blockData.Hardness = hardness.N
 		genesisBlock.U = blockData
 		genesisBlock.PublicKey = hardness
-		mutexAccountHolders.Lock()
-		accountHolders[0] = convertPublicKeyToJSON(hardness)
-		mutexAccountHolders.Unlock()
 		fmt.Println("Seed:", seed.D, "\nHardness:", hardness.N)
 		processBlock(genesisBlock)
 	} else {
@@ -511,7 +425,7 @@ func accept() {
 			log.Fatal(err)
 			fmt.Println("Error accepting connection from peer")
 		}
-		fmt.Println("New peer: " + newPeer.RemoteAddr().String())
+		fmt.Println("New peer")
 		connect(newPeer)
 	}
 }
@@ -525,7 +439,6 @@ func convertPublicKeyToJSON(key *account.PublicKey) string {
 }
 
 func convertJSONStringToPublicKey(key string) *account.PublicKey {
-	fmt.Println(key)
 	pk := &account.PublicKey{}
 	err := json.Unmarshal([]byte(key), pk)
 	if err != nil {
@@ -534,10 +447,11 @@ func convertJSONStringToPublicKey(key string) *account.PublicKey {
 	return pk
 }
 
-func convertTransactionToBigInt(transaction *Transaction) *big.Int {
+func convertTransactionToBigInt(t *Transaction) *big.Int {
+	transAsString := fmt.Sprintf("%#v", t)
 	var b bytes.Buffer
 	e := gob.NewEncoder(&b)
-	if err := e.Encode(transaction); err != nil {
+	if err := e.Encode(transAsString); err != nil {
 		panic(err)
 	}
 	transactionInt := new(big.Int)
