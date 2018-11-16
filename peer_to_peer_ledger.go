@@ -32,7 +32,7 @@ var (
 	unsequencedTransactions []*SignedTransaction
 	myPublicKey             *account.PublicKey
 	mySecretKey             *account.SecretKey
-	blocks                  []Block
+	blocks                  []*Block
 	accountHolders          [10]string
 	lotteryStartTime        int64
 	lastWinningSlot         int64
@@ -40,6 +40,7 @@ var (
 	lotteryStarted          bool
 	genesisBlockPerformed   bool
 	myAccount               string
+	winners                 []*Block
 )
 
 type Block struct {
@@ -51,7 +52,7 @@ type Block struct {
 }
 
 type BlockData struct {
-	Transactions []SignedTransaction
+	Transactions []*SignedTransaction
 	Seed         *big.Int
 	Hardness     *big.Int
 }
@@ -175,7 +176,7 @@ type TcpMessage struct {
 	Msg               string
 	Peers             *OrderedMap
 	SignedTransaction *SignedTransaction
-	Blocks            []Block
+	Blocks            []*Block
 	AccountHolders    [10]string
 	StartTime         int64
 }
@@ -207,7 +208,7 @@ func connectToExistingPeer(ip string) {
 		fmt.Println("Error connecting")
 		tracker.Set(getMyIpAndPort(), myPublicKey)
 		// Create genesis block
-		t := make([]SignedTransaction, 10)
+		t := make([]*SignedTransaction, 10)
 		h, s := account.KeyGen(512)
 		mutexAccountHolders.Lock()
 		accountHolders[0] = convertPublicKeyToJSON(h)
@@ -224,7 +225,7 @@ func connectToExistingPeer(ip string) {
 				Signature: "0",
 			}
 			ti.Signature = account.Sign(account.Hash(convertTransactionToBigInt(ti.T)), s).String()
-			t[i] = *ti
+			t[i] = ti
 		}
 		genesisBlock := new(Block)
 		blockData := new(BlockData)
@@ -250,9 +251,9 @@ func connectToExistingPeer(ip string) {
 
 func processBlock(Block *Block) {
 	for _, t := range Block.U.Transactions {
-		performTransaction(&t)
+		performTransaction(t)
 	}
-	blocks = append(blocks, *Block)
+	blocks = append(blocks, Block)
 	genesisBlockPerformed = true
 }
 
@@ -373,7 +374,7 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		}
 		for _, b := range message.Blocks {
 			if !genesisBlockPerformed {
-				processBlock(&b)
+				processBlock(b)
 			}
 		}
 		mutexTracker.Unlock()
@@ -409,6 +410,9 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 	}
 	if message.Msg == "Start" && !lotteryStarted {
 		go lottery(message.StartTime)
+	}
+	if message.Msg == "Winner" {
+		// TODO: call helper method, which starts a 1 sec timer and stores winners.. when timer is up, find winner
 	}
 }
 
@@ -623,7 +627,7 @@ func drawAndCheck(slot int64) (*big.Int, bool) {
 	return draw, true
 }
 
-func createBlock(draw *big.Int, slot int64) Block {
+func createBlock(draw *big.Int, slot int64) *Block {
 	block := new(Block)
 	block.PublicKey = myPublicKey
 	block.Draw = draw
@@ -631,6 +635,7 @@ func createBlock(draw *big.Int, slot int64) Block {
 	blockData := new(BlockData)
 	blockData.Hardness = getHardness()
 	blockData.Seed = getSeed()
+	blockData.Transactions = unsequencedTransactions
 	return block
 }
 
@@ -639,6 +644,16 @@ func broadcastWin(draw *big.Int, slot int64) {
 	message.Msg = "Winner"
 	blocks = append(blocks, createBlock(draw, slot))
 	message.Blocks = blocks
+	forwardTransaction(message)
+}
+
+func determineWinner(blocks []Block) {
+	winnerBlock := blocks[len(blocks)-1]
+	verified := verifyWinner(winnerBlock.Draw, winnerBlock.Slot, winnerBlock.PublicKey)
+	if !verified {
+		fmt.Println("Winner block failed to verify!")
+		return
+	}
 
 }
 
