@@ -36,6 +36,7 @@ var (
 	lotteryStartTime    int64
 	lastWinningSlot     int64
 	wins                int64
+	lotteryStarted      bool
 )
 
 type Block struct {
@@ -84,7 +85,6 @@ func main() {
 	ip = strings.TrimSuffix(ip, "\n")
 	connectToExistingPeer(ip)
 	go accept()
-	go lottery(time.Now().UnixNano())
 	for !stop {
 		time.Sleep(1000 * time.Millisecond) // keep alive
 	}
@@ -155,6 +155,7 @@ type TcpMessage struct {
 	SignedTransaction *SignedTransaction
 	Blocks            []Block
 	AccountHolders    [10]string
+	StartTime         int64
 }
 
 type Ledger struct {
@@ -185,9 +186,9 @@ func connectToExistingPeer(ip string) {
 		tracker.Set(getMyIpAndPort(), myPublicKey)
 		// Create genesis block
 		t := make([]SignedTransaction, 10)
-		hardness, seed := account.KeyGen(512)
+		h, s := account.KeyGen(512)
 		mutexAccountHolders.Lock()
-		accountHolders[0] = convertPublicKeyToJSON(hardness)
+		accountHolders[0] = convertPublicKeyToJSON(h)
 		mutexAccountHolders.Unlock()
 		for i := 0; i < 10; i++ {
 			n := strconv.Itoa(i + 1)
@@ -200,16 +201,17 @@ func connectToExistingPeer(ip string) {
 				},
 				Signature: "0",
 			}
-			ti.Signature = account.Sign(account.Hash(convertTransactionToBigInt(ti.T)), seed).String()
+			ti.Signature = account.Sign(account.Hash(convertTransactionToBigInt(ti.T)), s).String()
 			t[i] = *ti
 		}
 		genesisBlock := new(Block)
 		blockData := new(BlockData)
 		blockData.Transactions = t
+		hardness, seed := account.KeyGen(256)
 		blockData.Seed = seed.D
 		blockData.Hardness = hardness.N
 		genesisBlock.U = blockData
-		genesisBlock.PublicKey = hardness
+		genesisBlock.PublicKey = h
 		fmt.Println("Seed:", seed.D, "\nHardness:", hardness.N)
 		processBlock(genesisBlock)
 	} else {
@@ -263,7 +265,7 @@ func userInput() {
 			check = true
 		}
 	}
-	fmt.Println("Available commands:\nsend *accountnumber* *value* (Creates and broadcasts a transaction)\nget ledger (Returns the current ledger)\nexit (Terminates)\n---------------------------------------")
+	fmt.Println("Available commands:\nsend *accountnumber* *value* (Creates and broadcasts a transaction)\nstart (Starts lottery for all peers in network)\nget ledger (Returns the current ledger)\nexit (Terminates)\n---------------------------------------")
 	for !stop {
 		newMessage, _ := reader.ReadString('\n')
 		newMessage = strings.TrimSuffix(newMessage, "\n")
@@ -280,6 +282,13 @@ func userInput() {
 			mutexAccountHolders.Lock()
 			fmt.Println(accountHolders)
 			mutexAccountHolders.Unlock()
+		} else if newMessage == "start" {
+			msg := new(TcpMessage)
+			time := time.Now().UnixNano()
+			msg.Msg = "Start"
+			msg.StartTime = time
+			forwardTransaction(msg)
+			go lottery(time)
 		} else {
 			fmt.Println("Could not understand", newMessage)
 		}
@@ -368,6 +377,9 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 			mutexTracker.Unlock()
 		}
 		return
+	}
+	if message.Msg == "Start" && !lotteryStarted {
+		go lottery(message.StartTime)
 	}
 }
 
@@ -537,6 +549,7 @@ func GetOutboundIP() net.IP { // https://stackoverflow.com/questions/23558425/ho
 */
 
 func lottery(startTime int64) {
+	lotteryStarted = true
 	lotteryStartTime = startTime
 	var previousSlot int64
 	previousSlot = 0
