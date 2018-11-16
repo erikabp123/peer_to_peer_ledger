@@ -111,7 +111,7 @@ func KeyGen(k int) (*PublicKey, *SecretKey) {
 	return pk, sk
 }
 
-func Verify(sig *big.Int, msg *big.Int, pk *PublicKey) bool {
+func Verify(sig big.Int, msg *big.Int, pk *PublicKey) bool {
 	originalMsg := Encrypt(sig, pk)
 	if originalMsg.Cmp(Hash(msg)) == 0 {
 		return true
@@ -139,8 +139,8 @@ func Hash(msg *big.Int) *big.Int {
 	return hashedmsg
 }
 
-func Encrypt(msg *big.Int, key *PublicKey) *big.Int {
-	val := msg
+func Encrypt(msg big.Int, key *PublicKey) *big.Int {
+	val := &msg
 	c := val.Exp(val, key.E, key.N)
 	return c
 }
