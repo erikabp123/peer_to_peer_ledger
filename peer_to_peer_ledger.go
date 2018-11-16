@@ -627,6 +627,7 @@ func verifyWinner(draw *big.Int, slot int64, pkOfOwner *account.PublicKey) bool 
 	info[0] = convertSlotToBigInt(slot)
 	info[1] = getSeed()
 	verified := account.VerifyNoHash(draw, convertBigIntSliceToBigInt(info), pkOfOwner)
+	verified = verified && compareValueOfDrawWithHardness(valueOfDraw(draw, pkOfOwner, slot)) == 1
 	return verified
 }
 
