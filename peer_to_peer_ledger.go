@@ -19,18 +19,20 @@ import (
 )
 
 var (
-	stop         = false
-	mutexPeers   sync.Mutex
-	mutexTracker sync.Mutex
-	activePeers  []net.Conn
-	mutexLedger  sync.Mutex
-	tracker      *OrderedMap
-	ledger       *Ledger
-	port         string
-	transactions map[string]bool
-	myPublicKey  *account.PublicKey
-	mySecretKey  *account.SecretKey
-	blocks       []Block
+	stop                = false
+	mutexPeers          sync.Mutex
+	mutexTracker        sync.Mutex
+	mutexAccountHolders sync.Mutex
+	activePeers         []net.Conn
+	mutexLedger         sync.Mutex
+	tracker             *OrderedMap
+	ledger              *Ledger
+	port                string
+	transactions        map[string]bool
+	myPublicKey         *account.PublicKey
+	mySecretKey         *account.SecretKey
+	blocks              []Block
+	accountHolders      [10]string
 )
 
 type Block struct {
@@ -72,6 +74,7 @@ func main() {
 	tracker = NewOrderedMap()
 	ledger = MakeLedger()
 	reader := bufio.NewReader(os.Stdin)
+	accountHolders = [10]string{"", "", "", "", "", "", "", "", "", ""}
 	ledger.Accounts["0"] = 10000000
 	fmt.Printf("Connect to existing peer (E.g. 0.0.0.0:25556): ")
 	ip, _ := reader.ReadString('\n')
@@ -121,7 +124,10 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 		fmt.Println("SetString: error")
 		return
 	}
-	validSignature := account.Verify(n, convertTransactionToBigInt(t.T), convertJSONStringToPublicKey(t.T.From))
+	a, _ := strconv.Atoi(t.T.From)
+	mutexAccountHolders.Lock()
+	validSignature := account.Verify(n, convertTransactionToBigInt(t.T), convertJSONStringToPublicKey(accountHolders[a]))
+	mutexAccountHolders.Unlock()
 	fmt.Println("Validating signature:", validSignature)
 	if !validSignature {
 		return
@@ -143,6 +149,7 @@ type TcpMessage struct {
 	Peers             *OrderedMap
 	SignedTransaction *SignedTransaction
 	Blocks            []Block
+	AccountHolders    [10]string
 }
 
 type Ledger struct {
@@ -263,14 +270,28 @@ func connectToExistingPeer(ip string) {
 			Signature: "0",
 		}
 		var t []SignedTransaction
+		hardness, seed := account.KeyGen(256)
+		t1.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t1.T)), seed).String()
+		t2.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t2.T)), seed).String()
+		t3.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t3.T)), seed).String()
+		t4.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t4.T)), seed).String()
+		t5.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t5.T)), seed).String()
+		t6.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t6.T)), seed).String()
+		t7.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t7.T)), seed).String()
+		t8.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t8.T)), seed).String()
+		t9.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t9.T)), seed).String()
+		t10.Signature = account.Sign(account.Hash(convertTransactionToBigInt(t10.T)), seed).String()
 		t = []SignedTransaction{*t1, *t2, *t3, *t4, *t5, *t6, *t7, *t8, *t9, *t10}
 		genesisBlock := new(Block)
 		blockData := new(BlockData)
 		blockData.Transactions = t
-		hardness, seed := account.KeyGen(256)
 		blockData.Seed = seed.D
 		blockData.Hardness = hardness.N
 		genesisBlock.U = blockData
+		genesisBlock.PublicKey = hardness
+		mutexAccountHolders.Lock()
+		accountHolders[0] = convertPublicKeyToJSON(hardness)
+		mutexAccountHolders.Unlock()
 		fmt.Println("Seed:", seed.D, "\nHardness:", hardness.N)
 		processBlock(genesisBlock)
 	} else {
@@ -278,6 +299,9 @@ func connectToExistingPeer(ip string) {
 		connect(conn)
 		tcpMessage := new(TcpMessage)
 		tcpMessage.Msg = "Tracker"
+		mutexAccountHolders.Lock()
+		tcpMessage.AccountHolders = accountHolders
+		mutexAccountHolders.Unlock()
 		marshal(*tcpMessage, conn)
 	}
 }
@@ -308,7 +332,16 @@ func userInput() {
 			fmt.Println("Could not convert", newMessage)
 		} else if i < 1 || i > 10 {
 			fmt.Println("Must be between 1-10")
+		} else if accountHolders[i] != "" {
+			fmt.Println("This account is already claimed")
 		} else {
+			mutexAccountHolders.Lock()
+			accountHolders[i] = convertPublicKeyToJSON(myPublicKey)
+			send := new(TcpMessage)
+			send.AccountHolders = accountHolders
+			mutexAccountHolders.Unlock()
+			send.Msg = "Claim"
+			forwardTransaction(send)
 			check = true
 		}
 	}
@@ -325,6 +358,10 @@ func userInput() {
 		} else if newMessage == "exit" {
 			fmt.Println("Exiting")
 			stop = true
+		} else if newMessage == "accounts" {
+			mutexAccountHolders.Lock()
+			fmt.Println(accountHolders)
+			mutexAccountHolders.Unlock()
 		} else {
 			fmt.Println("Could not understand", newMessage)
 		}
@@ -346,6 +383,9 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		reply := new(TcpMessage)
 		reply.Peers = tracker
 		reply.Msg = "Tracker List"
+		mutexAccountHolders.Lock()
+		reply.AccountHolders = accountHolders
+		mutexAccountHolders.Unlock()
 		reply.Blocks = blocks
 		marshal(*reply, conn)
 		mutexTracker.Unlock()
@@ -360,6 +400,9 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 	}
 	if message.Msg == "Tracker List" {
 		mutexTracker.Lock()
+		mutexAccountHolders.Lock()
+		accountHolders = message.AccountHolders
+		mutexAccountHolders.Unlock()
 		for _, ip := range message.Peers.Keys {
 			if !trackerContainsIp(ip) {
 				tracker.Set(ip, message.Peers.M[ip])
@@ -383,7 +426,11 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 	if message.Msg == "Transaction" {
 		go ledger.SignedTransaction(message.SignedTransaction)
 	}
-
+	if message.Msg == "Claim" {
+		mutexAccountHolders.Lock()
+		accountHolders = message.AccountHolders
+		mutexAccountHolders.Unlock()
+	}
 }
 
 func trackerContainsIp(ip string) bool {
@@ -478,6 +525,7 @@ func convertPublicKeyToJSON(key *account.PublicKey) string {
 }
 
 func convertJSONStringToPublicKey(key string) *account.PublicKey {
+	fmt.Println(key)
 	pk := &account.PublicKey{}
 	err := json.Unmarshal([]byte(key), pk)
 	if err != nil {
