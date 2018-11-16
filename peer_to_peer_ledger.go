@@ -45,6 +45,7 @@ var (
 	determiningWinner       = false
 	mutexDW                 sync.Mutex
 	mutexHardness           sync.Mutex
+	mutexBlocks             sync.Mutex
 )
 
 type Block struct {
@@ -254,6 +255,8 @@ func connectToExistingPeer(ip string) {
 }
 
 func processBlock(Block *Block) {
+	mutexBlocks.Lock()
+	defer mutexBlocks.Unlock()
 	if Block.U != nil && len(Block.U.Transactions) > 0 {
 		for _, t := range Block.U.Transactions {
 			performTransaction(t)
@@ -347,7 +350,9 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		mutexAccountHolders.Lock()
 		reply.AccountHolders = accountHolders
 		mutexAccountHolders.Unlock()
+		mutexBlocks.Lock()
 		reply.Blocks = blocks
+		mutexBlocks.Unlock()
 		marshal(*reply, conn)
 		mutexTracker.Unlock()
 		return
@@ -401,7 +406,7 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		mutexAccountHolders.Unlock()
 	}
 	if message.Msg == "Forward" {
-		if len(tracker.Keys) < len(message.Peers.Keys) {
+		if len(activePeers) < len(message.Peers.Keys) {
 			fmt.Println("Updating tracker list")
 			mutexTracker.Lock()
 			for _, p := range message.Peers.Keys {
@@ -442,8 +447,10 @@ func activePeersContainsIp(ip string) bool {
 }
 
 func compareBlockLists(received []*Block) bool {
+	mutexBlocks.Lock()
+	defer mutexBlocks.Unlock()
 	if len(received) < len(blocks) || len(received) != len(blocks)+1 {
-		fmt.Println("Length check failed")
+		fmt.Println("Length check failed (", len(received), ",", len(blocks), ")")
 		return false
 	}
 	for i := 0; i < len(blocks); i++ {
@@ -625,12 +632,13 @@ func lottery(startTime int64) {
 }
 
 func verifyWinner(draw *big.Int, slot int64, pkOfOwner *account.PublicKey) bool {
+	fmt.Println(draw)
 	info := make([]*big.Int, 2)
 	info[0] = convertSlotToBigInt(slot)
 	info[1] = getSeed()
 	drawClone := new(big.Int).Set(draw)
 	verified := account.VerifyNoHash(drawClone, convertBigIntSliceToBigInt(info), pkOfOwner)
-	verified = verified && compareValueOfDrawWithHardness(valueOfDraw(draw, pkOfOwner, slot)) == 1
+	//verified = verified && compareValueOfDrawWithHardness(valueOfDraw(draw, pkOfOwner, slot)) == 1
 	return verified
 }
 
@@ -639,10 +647,10 @@ func drawAndCheck(slot int64) (*big.Int, bool) {
 	val := valueOfDraw(draw, myPublicKey, slot)
 	comparison := compareValueOfDrawWithHardness(val)
 	if comparison < 1 {
-		fmt.Println("Loss on draw!")
+		fmt.Println("Loss on draw:", slot)
 		return draw, false
 	}
-	fmt.Println("Win on draw!")
+	fmt.Println("Win on draw:", slot)
 	broadcastWin(draw, slot)
 	return draw, true
 }
@@ -663,10 +671,14 @@ func broadcastWin(draw *big.Int, slot int64) {
 	message := new(TcpMessage)
 	message.Msg = "Winner"
 	var newBlocks []*Block
+	mutexBlocks.Lock()
 	for _, v := range blocks {
 		newBlocks = append(newBlocks, v)
 	}
+	mutexBlocks.Unlock()
 	newBlocks = append(newBlocks, createBlock(draw, slot))
+	fmt.Println("blocks length:", len(blocks))
+	fmt.Println("newBlocks length:", len(newBlocks))
 	message.Blocks = newBlocks
 	message.AccountHolders = accountHolders
 	go determineWinner(newBlocks)
@@ -678,6 +690,7 @@ func determineWinner(received []*Block) {
 	winnerBlock := received[len(received)-1]
 	verified := verifyWinner(winnerBlock.Draw, winnerBlock.Slot, winnerBlock.PublicKey)
 	if !compareBlockLists(received) {
+		fmt.Println("Did not agree on list with winner")
 		return
 	}
 	if !verified {
@@ -693,14 +706,21 @@ func determineWinner(received []*Block) {
 	winners = append(winners, winnerBlock)
 	mutexWinners.Unlock()
 	mutexDW.Lock()
-	defer mutexDW.Unlock()
 	if determiningWinner {
 		return
 	}
 	determiningWinner = true
-	time.Sleep(1000)
-	processBlock(compareWinners())
+	mutexDW.Unlock()
+	time.Sleep(1 * time.Second)
+	winner := compareWinners()
+	fmt.Println("Winner was:", winner)
+	processBlock(winner)
+	mutexWinners.Lock()
 	winners = []*Block{}
+	mutexWinners.Unlock()
+	mutexDW.Lock()
+	determiningWinner = false
+	mutexDW.Unlock()
 }
 
 func findBestWinner(curWinner *Block, v *Block) *Block {
@@ -793,10 +813,14 @@ func findAccountOfPk(pk *account.PublicKey) int {
 }
 
 func getHardness() *big.Int {
+	mutexBlocks.Lock()
+	defer mutexBlocks.Unlock()
 	return blocks[0].U.Hardness
 }
 
 func getSeed() *big.Int {
+	mutexBlocks.Lock()
+	defer mutexBlocks.Unlock()
 	return blocks[0].U.Seed
 	//return blocks[0].U.Seed
 }
