@@ -23,7 +23,6 @@ var (
 	mutexPeers       sync.Mutex
 	mutexTracker     sync.Mutex
 	activePeers      []net.Conn
-	mutexLedger      sync.Mutex
 	tracker          *OrderedMap
 	ledger           *Ledger
 	port             string
@@ -32,6 +31,10 @@ var (
 	mySecretKey      *account.SecretKey
 	blocks           []Block
 	lotteryStartTime int64
+	lastWinningSlot  int64
+	hardness         *big.Int
+	seed             *big.Int
+	wins             int64
 )
 
 type Block struct {
@@ -66,7 +69,7 @@ func (o *OrderedMap) Set(k string, v *account.PublicKey) {
 }
 
 func main() {
-	myPublicKey, mySecretKey = account.KeyGen(256)
+	myPublicKey, mySecretKey = account.KeyGen(1024)
 	transactions = make(map[string]bool)
 	port = randomPort()
 	activePeers = []net.Conn{}
@@ -77,8 +80,9 @@ func main() {
 	fmt.Printf("Connect to existing peer (E.g. 0.0.0.0:25556): ")
 	ip, _ := reader.ReadString('\n')
 	ip = strings.TrimSuffix(ip, "\n")
-	connectToExistingPeer(ip)
+	//connectToExistingPeer(ip)
 	go accept()
+	go lottery(time.Now().UnixNano())
 	for !stop {
 		time.Sleep(1000 * time.Millisecond) // keep alive
 	}
@@ -548,18 +552,55 @@ func GetOutboundIP() net.IP { // https://stackoverflow.com/questions/23558425/ho
 }
 
 /*
-	LOTTERY SYSTEM
+	START LOTTERY SYSTEM
 */
 
-func convertBigIntSliceToBigInt(slice []*big.Int) *big.Int {
-	var b bytes.Buffer
-	e := gob.NewEncoder(&b)
-	if err := e.Encode(slice); err != nil {
-		panic(err)
+func lottery(startTime int64) {
+	hardn, sed := account.KeyGen(256)
+	hardness = hardn.N
+	seed = sed.D
+
+	lotteryStartTime = startTime
+	var previousSlot int64
+	previousSlot = 0
+	lastWinningSlot = 0
+	for previousSlot < 240 {
+		slot := calculateSlot()
+		if slot > previousSlot {
+			draw, result := drawAndCheck(slot)
+			if result {
+				adjustHardness(slot)
+				fmt.Println("Verified winner:", verifyWinner(draw, slot, myPublicKey))
+				wins++
+				lastWinningSlot = slot
+			} else if slot%10 == 0 {
+				adjustHardness(slot)
+			}
+			previousSlot = slot
+		}
+
 	}
-	sliceAsInt := new(big.Int)
-	sliceAsInt.SetBytes(b.Bytes())
-	return sliceAsInt
+	fmt.Println(wins, previousSlot)
+}
+
+func verifyWinner(draw *big.Int, slot int64, pkOfOwner *account.PublicKey) bool {
+	info := make([]*big.Int, 2)
+	info[0] = convertSlotToBigInt(slot)
+	info[1] = getSeed()
+	verified := account.VerifyNoHash(draw, convertBigIntSliceToBigInt(info), pkOfOwner)
+	return verified
+}
+
+func drawAndCheck(slot int64) (*big.Int, bool) {
+	draw := draw(slot)
+	val := valueOfDraw(draw, myPublicKey, slot)
+	comparison := compareValueOfDrawWithHardness(val)
+	if comparison < 1 {
+		fmt.Println("Loss on draw!")
+		return draw, false
+	}
+	fmt.Println("Win on draw!") // TODO: Implement actual win behvaior
+	return draw, true
 }
 
 func calculateSlot() int64 {
@@ -569,10 +610,85 @@ func calculateSlot() int64 {
 }
 
 func draw(slot int64) *big.Int {
-	var info []*big.Int
-	slotAsBigInt := new(big.Int)
-	slotAsBigInt.SetInt64(slot)
-	info[0] = slotAsBigInt
+	info := make([]*big.Int, 2)
+	info[0] = convertSlotToBigInt(slot)
+	info[1] = getSeed()
 	sig := account.Sign(convertBigIntSliceToBigInt(info), mySecretKey)
 	return sig
 }
+
+func valueOfDraw(draw *big.Int, pkOfDraw *account.PublicKey, slot int64) *big.Int {
+	tickets := new(big.Int)
+	tickets.SetUint64(1) // TODO: Update to use the tickets associated with the pk of the draw
+	toBeHashed := make([]*big.Int, 4)
+	toBeHashed[0] = getSeed()
+	toBeHashed[1] = convertSlotToBigInt(slot)
+	toBeHashed[2] = convertPublicKeyToBigInt(pkOfDraw)
+	toBeHashed[3] = draw
+	h := account.Hash(convertBigIntSliceToBigInt(toBeHashed))
+	val := tickets.Mul(tickets, h)
+	return val
+}
+
+func compareValueOfDrawWithHardness(valueOfDraw *big.Int) int {
+	return valueOfDraw.Cmp(getHardness())
+}
+
+func adjustHardness(slot int64) {
+	idealTopRange := lastWinningSlot + 10
+	if slot > idealTopRange {
+		//decrease hardness by 10%
+		fmt.Println("Reducing hardness!")
+		reduction := new(big.Int)
+		reduction.Div(hardness, new(big.Int).SetUint64(10))
+		hardness = hardness.Sub(hardness, reduction)
+	} else if slot < lastWinningSlot+8 {
+		//increase hardness by 20%
+		fmt.Println("Increasing hardness")
+		increase := new(big.Int)
+		increase.Div(hardness, new(big.Int).SetUint64(10))
+		hardness = hardness.Add(hardness, increase)
+	}
+}
+
+func getHardness() *big.Int {
+	return hardness
+}
+
+func getSeed() *big.Int {
+	return seed
+	//return blocks[0].U.Seed
+}
+
+func convertSlotToBigInt(slot int64) *big.Int {
+	slotAsBigInt := new(big.Int)
+	slotAsBigInt.SetInt64(slot)
+	return slotAsBigInt
+}
+
+func convertBigIntSliceToBigInt(slice []*big.Int) *big.Int {
+	str := fmt.Sprintf("%#v", slice)
+	var b bytes.Buffer
+	e := gob.NewEncoder(&b)
+	if err := e.Encode(str); err != nil {
+		panic(err)
+	}
+	sliceAsInt := new(big.Int)
+	sliceAsInt.SetBytes(b.Bytes())
+	return sliceAsInt
+}
+
+func convertPublicKeyToBigInt(key *account.PublicKey) *big.Int {
+	var b bytes.Buffer
+	e := gob.NewEncoder(&b)
+	if err := e.Encode(key); err != nil {
+		panic(err)
+	}
+	keyAsInt := new(big.Int)
+	keyAsInt.SetBytes(b.Bytes())
+	return keyAsInt
+}
+
+/*
+	END LOTTERY SYSTEM
+*/

@@ -119,6 +119,14 @@ func Verify(sig *big.Int, msg *big.Int, pk *PublicKey) bool {
 	return false
 }
 
+func VerifyNoHash(sig *big.Int, msg *big.Int, pk *PublicKey) bool {
+	originalMsg := Encrypt(sig, pk)
+	if originalMsg.Cmp(msg) == 0 {
+		return true
+	}
+	return false
+}
+
 func Sign(hash *big.Int, key *SecretKey) *big.Int {
 	return Decrypt(hash, key)
 }
