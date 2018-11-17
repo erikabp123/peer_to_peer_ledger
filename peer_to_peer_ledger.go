@@ -123,6 +123,7 @@ type Transaction struct {
 func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
+	mutexUnsequenced.Lock()
 	if transactions[t.T.ID] || find(t.T.ID) != -1 || t.T.Amount <= 0 {
 		return
 	}
@@ -131,7 +132,6 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	if !checkTransactionSignature(t) {
 		return
 	}
-	mutexUnsequenced.Lock()
 	unsequencedTransactions = append(unsequencedTransactions, t)
 	mutexUnsequenced.Unlock()
 	tcpMsg := new(TcpMessage)
