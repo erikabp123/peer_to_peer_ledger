@@ -127,20 +127,7 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	}
 	fmt.Println("Transaction #", t.T.ID)
 
-	//check signature
-	n := new(big.Int)
-	n, ok := n.SetString(t.Signature, 10)
-	if !ok {
-		fmt.Println("SetString: error")
-		return
-	}
-	a, _ := strconv.Atoi(t.T.From)
-	mutexAccountHolders.Lock()
-	//fmt.Println("Compare:", account.Encrypt(*n, convertJSONStringToPublicKey(accountHolders[a])), "\nWith:", account.Hash(convertTransactionToBigInt(t.T)))
-	validSignature := account.Verify(*n, convertTransactionToBigInt(t.T), convertJSONStringToPublicKey(accountHolders[a]))
-	mutexAccountHolders.Unlock()
-	//fmt.Println("Validating signature:", validSignature)
-	if !validSignature {
+	if !checkTransactionSignature(t) {
 		return
 	}
 	unsequencedTransactions = append(unsequencedTransactions, t)
@@ -149,6 +136,23 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	tcpMsg.SignedTransaction = t
 	tcpMsg.Peers = NewOrderedMap()
 	forwardTransaction(tcpMsg)
+}
+
+func checkTransactionSignature(t *SignedTransaction) bool {
+	n := new(big.Int)
+	n, ok := n.SetString(t.Signature, 10)
+	a, _ := strconv.Atoi(t.T.From)
+	if !ok {
+		fmt.Println("SetString: error")
+		return false
+	}
+	mutexAccountHolders.Lock()
+	defer mutexAccountHolders.Unlock()
+	validSignature := account.Verify(*n, convertTransactionToBigInt(t.T), convertJSONStringToPublicKey(accountHolders[a]))
+	if validSignature {
+		return true
+	}
+	return false
 }
 
 func performTransaction(t *SignedTransaction) {
@@ -160,7 +164,7 @@ func performTransaction(t *SignedTransaction) {
 		fmt.Println("Account depleted. Transaction:", t.T.ID)
 		return
 	}
-	fmt.Println("Transaction #"+t.T.ID, t.T.From+"/"+strconv.Itoa(ledger.Accounts[t.T.From])+" => "+t.T.To+"/"+strconv.Itoa(ledger.Accounts[t.T.To]))
+	fmt.Println("Transaction #"+t.T.ID, t.T.From+"/"+strconv.Itoa(ledger.Accounts[t.T.From])+" AU => "+t.T.To+"/"+strconv.Itoa(ledger.Accounts[t.T.To])+" AU")
 	ledger.Accounts[t.T.From] -= t.T.Amount
 	ledger.Accounts[t.T.To] += t.T.Amount
 	transactions[t.T.ID] = true
@@ -235,7 +239,7 @@ func connectToExistingPeer(ip string) {
 		genesisBlock := new(Block)
 		blockData := new(BlockData)
 		blockData.Transactions = t
-		hardness, seed := account.KeyGen(276) //Change back to 277
+		hardness, seed := account.KeyGen(277) //Change back to 277
 		blockData.Seed = seed.D
 		blockData.Hardness = hardness.N
 		genesisBlock.U = blockData
@@ -257,13 +261,35 @@ func connectToExistingPeer(ip string) {
 func processBlock(Block *Block) {
 	mutexBlocks.Lock()
 	defer mutexBlocks.Unlock()
-	if Block.U != nil && len(Block.U.Transactions) > 0 {
-		for _, t := range Block.U.Transactions {
-			performTransaction(t)
+	abort := false
+	account := "0"
+	var pendingTransactions []*SignedTransaction
+	for k, v := range accountHolders {
+		if v == convertPublicKeyToJSON(Block.PublicKey) {
+			account = strconv.Itoa(k)
 		}
 	}
-	blocks = append(blocks, Block)
-	genesisBlockPerformed = true
+	if Block.U != nil && len(Block.U.Transactions) > 0 {
+		for _, t := range Block.U.Transactions {
+			if !checkTransactionSignature(t) {
+				abort = true
+			} else {
+				pendingTransactions = append(pendingTransactions, t)
+			}
+		}
+	}
+	if !abort {
+		extra := 0
+		for _, t := range pendingTransactions {
+			performTransaction(t)
+			extra++
+		}
+		ledger.lock.Lock()
+		ledger.Accounts[account] += 10 + extra
+		ledger.lock.Unlock()
+		blocks = append(blocks, Block)
+		genesisBlockPerformed = true
+	}
 }
 
 func connect(conn net.Conn) {
@@ -310,7 +336,7 @@ func userInput() {
 			sendToPeers(newMessage)
 		} else if newMessage == "get ledger" {
 			for key, value := range ledger.Accounts {
-				fmt.Println(key, value)
+				fmt.Println(key, value, "AU")
 			}
 		} else if newMessage == "exit" {
 			fmt.Println("Exiting")
@@ -423,7 +449,10 @@ func checkMessage(message TcpMessage, conn net.Conn) {
 		lottery(message.StartTime)
 	}
 	if message.Msg == "Winner" {
-		determineWinner(message.Blocks)
+		mutexWinners.Lock()
+		winners = append(winners, message.Blocks[len(message.Blocks)-1])
+		mutexWinners.Unlock()
+		//go determineWinner(message.Blocks)
 	}
 }
 
@@ -643,6 +672,22 @@ func verifyWinner(draw *big.Int, slot int64, pkOfOwner *account.PublicKey) bool 
 }
 
 func drawAndCheck(slot int64) (*big.Int, bool) {
+	mutexWinners.Lock()
+	if len(winners) > 0 {
+		winner := compareWinners()
+		verified := verifyWinner(winner.Draw, winner.Slot, winner.PublicKey)
+		if !verified {
+			fmt.Println("Winner block not verified!")
+		} else {
+			fmt.Println("Winner was", winner.PublicKey)
+			mutexHardness.Lock()
+			lastWinningSlot = winner.Slot
+			adjustHardness(winner.Slot)
+			mutexHardness.Unlock()
+			processBlock(winner)
+		}
+	}
+	mutexWinners.Unlock()
 	draw := draw(slot)
 	val := valueOfDraw(draw, myPublicKey, slot)
 	comparison := compareValueOfDrawWithHardness(val)
@@ -676,13 +721,17 @@ func broadcastWin(draw *big.Int, slot int64) {
 		newBlocks = append(newBlocks, v)
 	}
 	mutexBlocks.Unlock()
-	newBlocks = append(newBlocks, createBlock(draw, slot))
+	newBlock := createBlock(draw, slot)
+	newBlocks = append(newBlocks, newBlock)
 	//fmt.Println("blocks length:", len(blocks))
 	//fmt.Println("newBlocks length:", len(newBlocks))
 	message.Blocks = newBlocks
 	message.AccountHolders = accountHolders
-	go determineWinner(newBlocks)
+	//go determineWinner(newBlocks)
 	forwardTransaction(message)
+	mutexWinners.Lock()
+	winners = append(winners, newBlock)
+	mutexWinners.Unlock()
 }
 
 func determineWinner(received []*Block) {
@@ -714,7 +763,7 @@ func determineWinner(received []*Block) {
 	}
 	determiningWinner = true
 	mutexDW.Unlock()
-	time.Sleep(700)
+	time.Sleep(2000)
 	winner := compareWinners()
 	fmt.Println("Winner was:", winner)
 	processBlock(winner)
@@ -728,29 +777,11 @@ func determineWinner(received []*Block) {
 	fmt.Println("Ending determinewinner", mutexHardness, mutexDW, mutexWinners)
 }
 
-func findBestWinner(curWinner *Block, v *Block) *Block {
-	result := valueOfDraw(v.Draw, v.PublicKey, v.Slot).Cmp(valueOfDraw(curWinner.Draw, curWinner.PublicKey, curWinner.Slot))
-	if result == 1 {
-		return v
-	}
-	if result == -1 {
-		return curWinner
-	}
-	result = v.PublicKey.N.Cmp(curWinner.PublicKey.N)
-	if result == 1 {
-		return v
-	}
-	return curWinner
-}
-
 func compareWinners() *Block {
-	mutexWinners.Lock()
-	defer mutexWinners.Unlock()
 	var curWinner *Block
 	curWinner = winners[0]
 	for i := 0; i < len(winners); i++ {
 		cmp := winners[i].Draw.Cmp(curWinner.Draw)
-		fmt.Println(cmp)
 		if cmp == 1 {
 			curWinner = winners[i]
 		} else if cmp == 0 {
@@ -760,6 +791,7 @@ func compareWinners() *Block {
 			}
 		}
 	}
+	winners = []*Block{}
 	return curWinner
 }
 
