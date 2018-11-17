@@ -164,7 +164,7 @@ func performTransaction(t *SignedTransaction) {
 		fmt.Println("Account depleted. Transaction:", t.T.ID)
 		return
 	}
-	fmt.Println("Transaction #"+t.T.ID, t.T.From+"/"+strconv.Itoa(ledger.Accounts[t.T.From])+" AU => "+t.T.To+"/"+strconv.Itoa(ledger.Accounts[t.T.To])+" AU")
+	fmt.Println("Transaction #"+t.T.ID, t.T.Amount, "(fee deducted)", t.T.From+"/"+strconv.Itoa(ledger.Accounts[t.T.From])+" AU => "+t.T.To+"/"+strconv.Itoa(ledger.Accounts[t.T.To])+" AU")
 	ledger.Accounts[t.T.From] -= t.T.Amount
 	ledger.Accounts[t.T.To] += t.T.Amount
 	transactions[t.T.ID] = true
@@ -275,6 +275,12 @@ func processBlock(Block *Block) {
 				abort = true
 			} else {
 				pendingTransactions = append(pendingTransactions, t)
+				i := find(t.T.ID)
+				if i != -1 {
+					unsequencedTransactions = append(unsequencedTransactions[:i], unsequencedTransactions[i+1:]...)
+				} else {
+					fmt.Println("Could not find", t.T.ID, "in local list.")
+				}
 			}
 		}
 	}
@@ -684,7 +690,7 @@ func drawAndCheck(slot int64) (*big.Int, bool) {
 			lastWinningSlot = winner.Slot
 			adjustHardness(winner.Slot)
 			mutexHardness.Unlock()
-			processBlock(winner)
+			go processBlock(winner)
 		}
 	}
 	mutexWinners.Unlock()
@@ -709,6 +715,7 @@ func createBlock(draw *big.Int, slot int64) *Block {
 	blockData.Hardness = getHardness()
 	blockData.Seed = getSeed()
 	blockData.Transactions = unsequencedTransactions
+	block.U = blockData
 	return block
 }
 
@@ -756,9 +763,9 @@ func determineWinner(received []*Block) {
 	winners = append(winners, winnerBlock)
 	mutexWinners.Unlock()
 	mutexDW.Lock()
-	fmt.Println("Attempting to determine winner!")
+	//fmt.Println("Attempting to determine winner!")
 	if determiningWinner {
-		fmt.Println("Already determining winner!")
+		fmt.Println("Already determining winner")
 		return
 	}
 	determiningWinner = true
@@ -774,7 +781,6 @@ func determineWinner(received []*Block) {
 	mutexDW.Lock()
 	determiningWinner = false
 	mutexDW.Unlock()
-	fmt.Println("Ending determinewinner", mutexHardness, mutexDW, mutexWinners)
 }
 
 func compareWinners() *Block {
@@ -832,7 +838,7 @@ func adjustHardness(slot int64) {
 	hardness := getHardness()
 	if slot > idealTopRange {
 		//decrease hardness by 10%
-		fmt.Println("Reducing hardness!")
+		fmt.Println("Reducing hardness")
 		reduction := new(big.Int)
 		reduction.Div(hardness, new(big.Int).SetUint64(5))
 		hardness = hardness.Sub(hardness, reduction)
