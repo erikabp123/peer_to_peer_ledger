@@ -46,6 +46,7 @@ var (
 	mutexDW                 sync.Mutex
 	mutexHardness           sync.Mutex
 	mutexBlocks             sync.Mutex
+	mutexUnsequenced        sync.Mutex
 )
 
 type Block struct {
@@ -130,7 +131,9 @@ func (l *Ledger) SignedTransaction(t *SignedTransaction) {
 	if !checkTransactionSignature(t) {
 		return
 	}
+	mutexUnsequenced.Lock()
 	unsequencedTransactions = append(unsequencedTransactions, t)
+	mutexUnsequenced.Unlock()
 	tcpMsg := new(TcpMessage)
 	tcpMsg.Msg = "Transaction"
 	tcpMsg.SignedTransaction = t
@@ -275,12 +278,14 @@ func processBlock(Block *Block) {
 				abort = true
 			} else {
 				pendingTransactions = append(pendingTransactions, t)
+				mutexUnsequenced.Lock()
 				i := find(t.T.ID)
 				if i != -1 {
 					unsequencedTransactions = append(unsequencedTransactions[:i], unsequencedTransactions[i+1:]...)
 				} else {
 					fmt.Println("Could not find", t.T.ID, "in local list.")
 				}
+				mutexUnsequenced.Unlock()
 			}
 		}
 	}
@@ -714,7 +719,9 @@ func createBlock(draw *big.Int, slot int64) *Block {
 	blockData := new(BlockData)
 	blockData.Hardness = getHardness()
 	blockData.Seed = getSeed()
+	mutexUnsequenced.Lock()
 	blockData.Transactions = unsequencedTransactions
+	mutexUnsequenced.Unlock()
 	block.U = blockData
 	return block
 }
