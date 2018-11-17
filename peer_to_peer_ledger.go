@@ -258,6 +258,15 @@ func connectToExistingPeer(ip string) {
 	}
 }
 
+func findKeyInSlice(slice []*SignedTransaction, id string) (bool, int) {
+	for k, v := range slice {
+		if v.T.ID == id {
+			return true, k
+		}
+	}
+	return false, 0
+}
+
 func processBlock(Block *Block) {
 	mutexBlocks.Lock()
 	defer mutexBlocks.Unlock()
@@ -287,8 +296,18 @@ func processBlock(Block *Block) {
 	if !abort {
 		extra := 0
 		for _, t := range pendingTransactions {
-			performTransaction(t)
-			extra++
+			var utClone []*SignedTransaction
+			copy(utClone, unsequencedTransactions)
+			for _, v := range utClone {
+				if v.T.ID == t.T.ID {
+					success, key := findKeyInSlice(unsequencedTransactions, v.T.ID)
+					if success {
+						unsequencedTransactions = append(unsequencedTransactions[:key], unsequencedTransactions[key+1:]...)
+					}
+					performTransaction(v)
+					extra++
+				}
+			}
 		}
 		ledger.lock.Lock()
 		ledger.Accounts[account] += 10 + extra
