@@ -650,7 +650,7 @@ func lottery(startTime int64) {
 	var previousSlot int64
 	previousSlot = 0
 	lastWinningSlot = 0
-	for !stop && previousSlot < 240 {
+	for !stop /*&& previousSlot < 240*/ {
 		slot := calculateSlot()
 		if slot > previousSlot {
 			drawAndCheck(slot)
@@ -663,7 +663,7 @@ func lottery(startTime int64) {
 		}
 
 	}
-	fmt.Println(wins, previousSlot)
+	//fmt.Println(wins, previousSlot)
 }
 
 func verifyWinner(draw *big.Int, slot int64, pkOfOwner *account.PublicKey) bool {
